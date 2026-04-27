@@ -58,10 +58,6 @@ def _p(msg: str, lvl: str = "INFO", cb=None):
 # ══════════════════════════════════════════════════════
 
 def fetch_holdings_from_excel(on_progress=None) -> str:
-    """
-    Opens Excel, uses CMoney VSTO add-in (00981A操作日報 template),
-    pulls holdings data, reads all rows, returns as space-separated text.
-    """
     p = lambda m, lv="INFO": _p(m, lv, on_progress)
     p("啟動 Excel...")
 
@@ -109,21 +105,20 @@ def _trigger_cmoney_addin(excel, on_progress=None):
     p("嘗試切換至「增益集」標籤...")
     clicked_group = False
     
-    # 防呆機制：嘗試最多 3 次，確保標籤真的有切換過去
     for attempt in range(3):
         try:
-            tab = win.child_window(title="增益集", control_type="TabItem")
+            # 找第一個增益集標籤
+            tab = win.child_window(title="增益集", control_type="TabItem", found_index=0)
             
-            # 優先使用系統層級的選擇事件，避免滑鼠點擊因螢幕縮放而撲空
             try:
                 tab.select()
             except Exception:
                 tab.click_input()
             
-            time.sleep(1.5) # 等待選單切換的動畫時間
+            time.sleep(1.5)
 
-            # 檢查「自訂工具列」是不是真的出現在畫面上了
-            grp = win.child_window(title="自訂工具列", control_type="Group")
+            # 加上 found_index=0，直接抓第一個出現的群組，無視幽靈元件
+            grp = win.child_window(title="自訂工具列", control_type="Group", found_index=0)
             if grp.exists(timeout=2):
                 btns = grp.children(control_type="Button")
                 if btns:
@@ -164,9 +159,8 @@ def _handle_cmoney_dialog(on_progress=None):
     dlg.set_focus()
     time.sleep(0.5)
 
-    # ── Step A: 型式選擇 → 下一步 ──
     try:
-        next_btn = dlg.child_window(title_re=r"下一步.*", control_type="Button")
+        next_btn = dlg.child_window(title_re=r"下一步.*", control_type="Button", found_index=0)
         if next_btn.exists(timeout=2):
             p("型式選擇 → 點擊 下一步>...")
             next_btn.click_input()
@@ -174,26 +168,23 @@ def _handle_cmoney_dialog(on_progress=None):
     except Exception:
         pass
 
-    # ── Step B: 主對話框 → 開啟... ──
     p("點擊 開啟...")
     try:
-        dlg.child_window(title_re=r"開啟.*", control_type="Button").click_input()
+        dlg.child_window(title_re=r"開啟.*", control_type="Button", found_index=0).click_input()
     except Exception as e:
         raise RuntimeError(f"找不到「開啟...」按鈕: {e}")
     time.sleep(1.5)
 
-    # ── Step C: 開啟自訂報表 → 展開使用者 → 00981A 操作日報 ──
     p("選擇 00981A 操作日報...")
     _select_cmoney_template()
     time.sleep(1)
 
-    # ── Step D: 主對話框 → 確定 ──
     p("主對話框 → 確定...")
     try:
         dlg = Desktop(backend="uia").window(title_re=r".*CMoneyExcel.*|.*資料匯出.*|.*資料轉出.*")
         dlg.set_focus()
         time.sleep(0.3)
-        dlg.child_window(title="確定", control_type="Button").click_input()
+        dlg.child_window(title="確定", control_type="Button", found_index=0).click_input()
     except Exception:
         send_keys("{ENTER}")
     
@@ -206,7 +197,7 @@ def _select_cmoney_template():
         dlg.set_focus()
         time.sleep(0.5)
 
-        tree = dlg.child_window(control_type="Tree")
+        tree = dlg.child_window(control_type="Tree", found_index=0)
         user_node = None
         for item in tree.children():
             try:
@@ -232,12 +223,12 @@ def _select_cmoney_template():
                     continue
         else:
             try:
-                dlg.child_window(title_re=r".*00981A.*").click_input()
+                dlg.child_window(title_re=r".*00981A.*", found_index=0).click_input()
             except Exception:
                 pass
 
         time.sleep(0.3)
-        dlg.child_window(title="確定", control_type="Button").click_input()
+        dlg.child_window(title="確定", control_type="Button", found_index=0).click_input()
 
     except Exception as e:
         _p(f"開啟自訂報表失敗（繼續）: {e}", "WARN")
@@ -303,8 +294,6 @@ def fetch_fund_scale(on_progress=None) -> tuple:
             app = Application(backend=backend).connect(handle=hwnd, timeout=5)
             win = app.window(handle=hwnd)
             win.set_focus()
-            
-            # 防呆：狂按 ESC 關閉可能卡住的奇怪視窗或報錯彈窗
             send_keys("{ESC 3}")
             time.sleep(1)
             break
@@ -444,7 +433,7 @@ def _cmoney_search(win, keyword: str):
 def _cmoney_goto_individual(win, code: str):
     for ctrl_type in ("TabItem", "RadioButton"):
         try:
-            win.child_window(title="個股", control_type=ctrl_type).click_input()
+            win.child_window(title="個股", control_type=ctrl_type, found_index=0).click_input()
             time.sleep(0.5)
             break
         except Exception:

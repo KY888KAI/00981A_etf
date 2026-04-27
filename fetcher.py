@@ -158,6 +158,7 @@ def _handle_cmoney_dialog(on_progress=None):
     dlg = None
     for _ in range(15):
         try:
+            # 截圖標題是 "CMoneyExcel資料轉出精靈"
             dlg = Desktop(backend="uia").window(title_re=r".*CMoneyExcel.*|.*資料匯出.*|.*資料轉出.*")
             if dlg.exists():
                 break
@@ -170,24 +171,32 @@ def _handle_cmoney_dialog(on_progress=None):
     dlg.set_focus()
     time.sleep(0.5)
 
+    p("尋找「下一步>」按鈕...")
     try:
-        next_btns = dlg.descendants(title_re=r"下一步.*", control_type="Button")
-        if next_btns:
-            p("型式選擇 → 點擊 下一步>...")
-            next_btns[0].click_input()
-            time.sleep(2)
-    except Exception:
-        pass
+        btns = dlg.descendants(control_type="Button")
+        for b in btns:
+            if "下一步" in b.window_text():
+                b.click_input()
+                p("點擊 下一步>...", "INFO")
+                time.sleep(2)
+                break
+    except Exception as e:
+        p(f"點擊下一步時發生錯誤 (可能已在下一頁): {e}", "WARN")
 
     p("點擊 開啟...")
     try:
-        open_btns = dlg.descendants(title_re=r"開啟.*", control_type="Button")
-        if open_btns:
-            open_btns[0].click_input()
-        else:
-            raise RuntimeError("找不到開啟按鈕")
+        opened = False
+        btns = dlg.descendants(control_type="Button")
+        for b in btns:
+            if "開啟" in b.window_text():
+                b.click_input()
+                opened = True
+                break
+        if not opened:
+            raise RuntimeError("畫面上找不到「開啟...」按鈕")
     except Exception as e:
-        raise RuntimeError(f"找不到「開啟...」按鈕: {e}")
+        raise RuntimeError(f"尋找「開啟...」按鈕失敗: {e}")
+        
     time.sleep(1.5)
 
     p("選擇 00981A 操作日報...")
@@ -196,13 +205,15 @@ def _handle_cmoney_dialog(on_progress=None):
 
     p("主對話框 → 確定...")
     try:
-        dlg = Desktop(backend="uia").window(title_re=r".*CMoneyExcel.*|.*資料匯出.*|.*資料轉出.*")
         dlg.set_focus()
         time.sleep(0.3)
-        ok_btns = dlg.descendants(title="確定", control_type="Button")
-        if ok_btns:
-            ok_btns[0].click_input()
-    except Exception:
+        btns = dlg.descendants(control_type="Button")
+        for b in btns:
+            if b.window_text() == "確定":
+                b.click_input()
+                break
+    except Exception as e:
+        p(f"點擊主對話框確定失敗: {e}", "WARN")
         send_keys("{ENTER}")
     
     time.sleep(5)
@@ -210,11 +221,12 @@ def _handle_cmoney_dialog(on_progress=None):
 
 def _select_cmoney_template():
     try:
-        dlg = Desktop(backend="uia").window(title_re=r".*開啟自訂報表.*|.*自訂報表.*")
-        dlg.set_focus()
+        # 尋找「開啟自訂報表」對話框
+        sub_dlg = Desktop(backend="uia").window(title_re=r".*開啟自訂報表.*|.*自訂報表.*")
+        sub_dlg.set_focus()
         time.sleep(0.5)
 
-        trees = dlg.descendants(control_type="Tree")
+        trees = sub_dlg.descendants(control_type="Tree")
         if not trees:
             raise RuntimeError("找不到樹狀圖")
         tree = trees[0]
@@ -243,17 +255,22 @@ def _select_cmoney_template():
                 except Exception:
                     continue
         else:
-            items = dlg.descendants(title_re=r".*00981A.*")
-            if items:
-                items[0].click_input()
+            # 備用找法，直接看畫面上所有的字
+            items = sub_dlg.descendants()
+            for i in items:
+                if "00981A" in i.window_text():
+                    i.click_input()
+                    break
 
         time.sleep(0.3)
-        ok_btns = dlg.descendants(title="確定", control_type="Button")
-        if ok_btns:
-            ok_btns[0].click_input()
+        btns = sub_dlg.descendants(control_type="Button")
+        for b in btns:
+            if b.window_text() == "確定":
+                b.click_input()
+                break
 
     except Exception as e:
-        _p(f"開啟自訂報表失敗（繼續）: {e}", "WARN")
+        _p(f"開啟自訂報表失敗: {e}", "WARN")
         send_keys("{ENTER}")
 
 

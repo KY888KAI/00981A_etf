@@ -100,84 +100,34 @@ def _trigger_cmoney_addin(excel, on_progress=None):
     if not hwnd:
         raise RuntimeError("找不到 Excel 視窗（XLMAIN）")
 
-    # FIX: use app.window(handle=hwnd) — top_level_windows() does not exist
     app = Application(backend="uia").connect(handle=hwnd)
     win = app.window(handle=hwnd)
     win.set_focus()
-    time.sleep(0.5)
+    win.maximize() # 強制最大化，確保 UI 元素不被隱藏折疊
+    time.sleep(1)
 
-    # Click 增益集 tab
+    # 1. 點擊 增益集 標籤 (對應圖01的標示1)
     p("點擊 增益集 標籤...")
     try:
         win.child_window(title="增益集", control_type="TabItem").click_input()
-        time.sleep(0.5)
+        time.sleep(1)
     except Exception as e:
-        p(f"UIA 增益集 tab 失敗({e})，改用 Alt 鍵盤", "WARN")
-        win.set_focus()
-        send_keys("%")
-        time.sleep(0.3)
-        send_keys("{ESC}")
-        time.sleep(0.2)
+        p(f"UIA 增益集標籤點擊失敗: {e}，請確認是否已載入增益集", "WARN")
+        raise
 
-    # Click Y-icon button (新增自訂表格) — first button in "自訂工具列" group
-    p("點擊 Y圖示按鈕（自訂工具列群組第1個）...")
-    clicked = False
-
-    # Strategy 1: "自訂工具列" group → first Button child
-    for grp_name in ("自訂工具列", "CMoney", "功能表命令"):
-        try:
-            grp = win.child_window(title=grp_name, control_type="Group")
-            btns = grp.children(control_type="Button")
-            if btns:
-                btns[0].click_input()
-                clicked = True
-                p(f"'{grp_name}' 群組第1個按鈕已點擊", "INFO")
-                break
-        except Exception:
-            continue
-
-    # Strategy 2: find all ribbon buttons (y 55-130 = actual ribbon area, excludes QAT at y<30)
-    # The Y-icon comes right after "CMoney ▼" dropdown in the ribbon
-    if not clicked:
-        try:
-            # Collect all visible ribbon buttons sorted by x position
-            ribbon_btns = []
-            for b in win.descendants(control_type="Button"):
-                try:
-                    r = b.rectangle()
-                    if 55 < r.top < 130:
-                        ribbon_btns.append((r.left, b))
-                except Exception:
-                    continue
-            ribbon_btns.sort(key=lambda x: x[0])
-
-            # Find "CMoney" dropdown then click the immediately next button
-            cmoney_x = None
-            for x, b in ribbon_btns:
-                try:
-                    if "CMoney" in b.window_text():
-                        cmoney_x = x
-                        break
-                except Exception:
-                    continue
-
-            if cmoney_x is not None:
-                for x, b in ribbon_btns:
-                    if x > cmoney_x:
-                        b.click_input()
-                        clicked = True
-                        p(f"CMoney 右側第1個按鈕已點擊 x={x}", "INFO")
-                        break
-            elif ribbon_btns:
-                # No CMoney label found — click first button beyond x=60 (skip QAT area)
-                for x, b in ribbon_btns:
-                    if x > 60:
-                        b.click_input()
-                        clicked = True
-                        p(f"備用：ribbon 按鈕 x={x} 已點擊", "WARN")
-                        break
-        except Exception as e:
-            p(f"ribbon 按鈕搜尋失敗: {e}", "WARN")
+    # 2. 點擊 自訂工具列 的第一個按鈕 (對應圖01的標示2)
+    p("點擊 自訂工具列 按鈕...")
+    try:
+        # 直接鎖定「自訂工具列」群組，並點擊其底下的第一個按鈕，完全棄用座標點擊
+        grp = win.child_window(title="自訂工具列", control_type="Group")
+        btns = grp.children(control_type="Button")
+        if btns:
+            btns[0].click_input()
+            p("成功點擊增益集按鈕", "INFO")
+        else:
+            raise RuntimeError("自訂工具列中沒有找到按鈕")
+    except Exception as e:
+        raise RuntimeError(f"增益集按鈕點擊失敗，流程中斷：{e}")
 
     time.sleep(2)
     _handle_cmoney_dialog(on_progress)
@@ -186,83 +136,58 @@ def _trigger_cmoney_addin(excel, on_progress=None):
 def _handle_cmoney_dialog(on_progress=None):
     p = lambda m, lv="INFO": _p(m, lv, on_progress)
 
-    # Wait for CMoneyExcel dialog (initial dialog = 型式選擇 OR main dialog)
     dlg = None
     for _ in range(15):
         try:
-            dlg = Desktop(backend="uia").window(
-                title_re=r".*CMoneyExcel.*|.*資料匯出.*"
-            )
+            # 根據截圖，精準匹配標題
+            dlg = Desktop(backend="uia").window(title_re=r".*CMoneyExcel資料轉出精靈.*")
             if dlg.exists():
                 break
         except Exception:
             pass
         time.sleep(1)
     if not dlg or not dlg.exists():
-        raise RuntimeError("CMoneyExcel 對話框未出現（請確認 CMoney 增益集已安裝並登入）")
+        raise RuntimeError("CMoneyExcel 對話框未出現")
 
     dlg.set_focus()
     time.sleep(0.5)
 
-    # ── Step A: 型式選擇 → 下一步 ──────────────────────────────────
-    # First dialog shows radio buttons (多股排行/個股總覽/...) + 下一步> button
+    # ── Step A: 型式選擇 → 下一步 (對應圖02的標示3) ──
     try:
         next_btn = dlg.child_window(title_re=r"下一步.*", control_type="Button")
         if next_btn.exists(timeout=2):
             p("型式選擇 → 點擊 下一步>...")
             next_btn.click_input()
             time.sleep(2)
-            # Re-acquire dialog after page transition
-            dlg = None
-            for _ in range(10):
-                try:
-                    dlg = Desktop(backend="uia").window(
-                        title_re=r".*CMoneyExcel.*|.*資料匯出.*"
-                    )
-                    if dlg.exists():
-                        break
-                except Exception:
-                    pass
-                time.sleep(1)
-            if not dlg or not dlg.exists():
-                raise RuntimeError("下一步 後主對話框未出現")
-            dlg.set_focus()
-            time.sleep(0.3)
-    except RuntimeError:
-        raise
     except Exception:
-        pass  # Already on main dialog page
+        pass  # 找不到下一步按鈕代表可能已經直接進入主畫面
 
-    # ── Step B: 主對話框 → 開啟... ─────────────────────────────────
+    # ── Step B: 主對話框 → 開啟... (對應圖03的標示4) ──
     p("點擊 開啟...")
     try:
-        dlg.child_window(title="開啟...", control_type="Button").click_input()
-    except Exception:
-        try:
-            dlg.child_window(title_re=r"開啟.*", control_type="Button").click_input()
-        except Exception:
-            send_keys("%o")
+        dlg.child_window(title_re=r"開啟.*", control_type="Button").click_input()
+    except Exception as e:
+        raise RuntimeError(f"找不到「開啟...」按鈕: {e}")
     time.sleep(1.5)
 
-    # ── Step C: 開啟自訂報表 → 展開使用者 → 00981A 操作日報 → 確定 ─
+    # ── Step C: 開啟自訂報表 → 展開使用者 → 00981A 操作日報 (對應圖04、05的標示5、6) ──
     p("選擇 00981A 操作日報...")
     _select_cmoney_template()
     time.sleep(1)
 
-    # ── Step D: 主對話框 → 確定 ────────────────────────────────────
+    # ── Step D: 主對話框 → 確定 ──
     p("主對話框 → 確定...")
     try:
-        dlg = Desktop(backend="uia").window(title_re=r".*CMoneyExcel.*|.*資料匯出.*")
+        dlg = Desktop(backend="uia").window(title_re=r".*CMoneyExcel資料轉出精靈.*")
         dlg.set_focus()
         time.sleep(0.3)
         dlg.child_window(title="確定", control_type="Button").click_input()
     except Exception:
         send_keys("{ENTER}")
-    time.sleep(3)
-
-    # ── Step E: 點擊 Excel 綠色箭頭（更新資料）────────────────────
-    p("點擊 Excel 綠色更新箭頭...")
-    _click_excel_refresh()
+    
+    # 移除原本強制去點綠色更新箭頭的邏輯（_click_excel_refresh），
+    # 因為點擊確定後，CMoney 增益集通常就會自動拋轉資料。
+    time.sleep(5)
 
 
 def _select_cmoney_template():

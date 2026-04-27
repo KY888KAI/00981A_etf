@@ -140,7 +140,7 @@ def _handle_cmoney_dialog(on_progress=None):
     for _ in range(15):
         try:
             # 根據截圖，精準匹配標題
-            dlg = Desktop(backend="uia").window(title_re=r".*CMoneyExcel資料轉出精靈.*")
+            dlg = Desktop(backend="uia").window(title_re=r".*CMoneyExcel.*|.*資料匯出.*|.*資料轉出.*")
             if dlg.exists():
                 break
         except Exception:
@@ -178,7 +178,7 @@ def _handle_cmoney_dialog(on_progress=None):
     # ── Step D: 主對話框 → 確定 ──
     p("主對話框 → 確定...")
     try:
-        dlg = Desktop(backend="uia").window(title_re=r".*CMoneyExcel資料轉出精靈.*")
+        dlg = Desktop(backend="uia").window(title_re=r".*CMoneyExcel.*|.*資料匯出.*|.*資料轉出.*")
         dlg.set_focus()
         time.sleep(0.3)
         dlg.child_window(title="確定", control_type="Button").click_input()

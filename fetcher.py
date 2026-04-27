@@ -107,29 +107,29 @@ def _trigger_cmoney_addin(excel, on_progress=None):
     
     for attempt in range(3):
         try:
-            # 找第一個增益集標籤
-            tab = win.child_window(title="增益集", control_type="TabItem", found_index=0)
-            
-            try:
-                tab.select()
-            except Exception:
-                tab.click_input()
+            # 暴力解法：拿回所有叫增益集的清單，直接手動抓第一個，不讓套件自行判斷
+            tabs = win.descendants(title="增益集", control_type="TabItem")
+            if tabs:
+                try:
+                    tabs[0].select()
+                except Exception:
+                    tabs[0].click_input()
             
             time.sleep(1.5)
 
-            # 加上 found_index=0，直接抓第一個出現的群組，無視幽靈元件
-            grp = win.child_window(title="自訂工具列", control_type="Group", found_index=0)
-            if grp.exists(timeout=2):
-                btns = grp.children(control_type="Button")
+            # 暴力解法：拿回所有叫自訂工具列的清單，直接手動抓第一個
+            grps = win.descendants(title="自訂工具列", control_type="Group")
+            if grps:
+                btns = grps[0].children(control_type="Button")
                 if btns:
                     p("成功展開增益集選單，點擊按鈕...", "INFO")
                     btns[0].click_input()
                     clicked_group = True
                     break
                 else:
-                    raise RuntimeError("有自訂工具列，但找不到裡面的按鈕")
+                    p("有自訂工具列，但找不到裡面的按鈕", "WARN")
             else:
-                p(f"第 {attempt+1} 次切換失敗，重新嘗試中...", "WARN")
+                p(f"第 {attempt+1} 次尋找失敗，重新嘗試中...", "WARN")
         except Exception as e:
             p(f"切換發生異常: {e}", "WARN")
             time.sleep(1)
@@ -160,17 +160,21 @@ def _handle_cmoney_dialog(on_progress=None):
     time.sleep(0.5)
 
     try:
-        next_btn = dlg.child_window(title_re=r"下一步.*", control_type="Button", found_index=0)
-        if next_btn.exists(timeout=2):
+        next_btns = dlg.descendants(title_re=r"下一步.*", control_type="Button")
+        if next_btns:
             p("型式選擇 → 點擊 下一步>...")
-            next_btn.click_input()
+            next_btns[0].click_input()
             time.sleep(2)
     except Exception:
         pass
 
     p("點擊 開啟...")
     try:
-        dlg.child_window(title_re=r"開啟.*", control_type="Button", found_index=0).click_input()
+        open_btns = dlg.descendants(title_re=r"開啟.*", control_type="Button")
+        if open_btns:
+            open_btns[0].click_input()
+        else:
+            raise RuntimeError("找不到開啟按鈕")
     except Exception as e:
         raise RuntimeError(f"找不到「開啟...」按鈕: {e}")
     time.sleep(1.5)
@@ -184,7 +188,9 @@ def _handle_cmoney_dialog(on_progress=None):
         dlg = Desktop(backend="uia").window(title_re=r".*CMoneyExcel.*|.*資料匯出.*|.*資料轉出.*")
         dlg.set_focus()
         time.sleep(0.3)
-        dlg.child_window(title="確定", control_type="Button", found_index=0).click_input()
+        ok_btns = dlg.descendants(title="確定", control_type="Button")
+        if ok_btns:
+            ok_btns[0].click_input()
     except Exception:
         send_keys("{ENTER}")
     
@@ -197,7 +203,11 @@ def _select_cmoney_template():
         dlg.set_focus()
         time.sleep(0.5)
 
-        tree = dlg.child_window(control_type="Tree", found_index=0)
+        trees = dlg.descendants(control_type="Tree")
+        if not trees:
+            raise RuntimeError("找不到樹狀圖")
+        tree = trees[0]
+        
         user_node = None
         for item in tree.children():
             try:
@@ -222,13 +232,14 @@ def _select_cmoney_template():
                 except Exception:
                     continue
         else:
-            try:
-                dlg.child_window(title_re=r".*00981A.*", found_index=0).click_input()
-            except Exception:
-                pass
+            items = dlg.descendants(title_re=r".*00981A.*")
+            if items:
+                items[0].click_input()
 
         time.sleep(0.3)
-        dlg.child_window(title="確定", control_type="Button", found_index=0).click_input()
+        ok_btns = dlg.descendants(title="確定", control_type="Button")
+        if ok_btns:
+            ok_btns[0].click_input()
 
     except Exception as e:
         _p(f"開啟自訂報表失敗（繼續）: {e}", "WARN")

@@ -103,31 +103,44 @@ def _trigger_cmoney_addin(excel, on_progress=None):
     app = Application(backend="uia").connect(handle=hwnd)
     win = app.window(handle=hwnd)
     win.set_focus()
-    win.maximize() # 強制最大化，確保 UI 元素不被隱藏折疊
-    time.sleep(1)
+    win.maximize()
+    time.sleep(1.5)
 
-    # 1. 點擊 增益集 標籤 (對應圖01的標示1)
-    p("點擊 增益集 標籤...")
-    try:
-        win.child_window(title="增益集", control_type="TabItem").click_input()
-        time.sleep(1)
-    except Exception as e:
-        p(f"UIA 增益集標籤點擊失敗: {e}，請確認是否已載入增益集", "WARN")
-        raise
+    p("嘗試切換至「增益集」標籤...")
+    clicked_group = False
+    
+    # 防呆機制：嘗試最多 3 次，確保標籤真的有切換過去
+    for attempt in range(3):
+        try:
+            tab = win.child_window(title="增益集", control_type="TabItem")
+            
+            # 優先使用系統層級的選擇事件，避免滑鼠點擊因螢幕縮放而撲空
+            try:
+                tab.select()
+            except Exception:
+                tab.click_input()
+            
+            time.sleep(1.5) # 等待選單切換的動畫時間
 
-    # 2. 點擊 自訂工具列 的第一個按鈕 (對應圖01的標示2)
-    p("點擊 自訂工具列 按鈕...")
-    try:
-        # 直接鎖定「自訂工具列」群組，並點擊其底下的第一個按鈕，完全棄用座標點擊
-        grp = win.child_window(title="自訂工具列", control_type="Group")
-        btns = grp.children(control_type="Button")
-        if btns:
-            btns[0].click_input()
-            p("成功點擊增益集按鈕", "INFO")
-        else:
-            raise RuntimeError("自訂工具列中沒有找到按鈕")
-    except Exception as e:
-        raise RuntimeError(f"增益集按鈕點擊失敗，流程中斷：{e}")
+            # 檢查「自訂工具列」是不是真的出現在畫面上了
+            grp = win.child_window(title="自訂工具列", control_type="Group")
+            if grp.exists(timeout=2):
+                btns = grp.children(control_type="Button")
+                if btns:
+                    p("成功展開增益集選單，點擊按鈕...", "INFO")
+                    btns[0].click_input()
+                    clicked_group = True
+                    break
+                else:
+                    raise RuntimeError("有自訂工具列，但找不到裡面的按鈕")
+            else:
+                p(f"第 {attempt+1} 次切換失敗，重新嘗試中...", "WARN")
+        except Exception as e:
+            p(f"切換發生異常: {e}", "WARN")
+            time.sleep(1)
+
+    if not clicked_group:
+        raise RuntimeError("無法成功切換到增益集標籤，請確認 Excel 畫面狀態。")
 
     time.sleep(2)
     _handle_cmoney_dialog(on_progress)
@@ -139,7 +152,6 @@ def _handle_cmoney_dialog(on_progress=None):
     dlg = None
     for _ in range(15):
         try:
-            # 根據截圖，精準匹配標題
             dlg = Desktop(backend="uia").window(title_re=r".*CMoneyExcel.*|.*資料匯出.*|.*資料轉出.*")
             if dlg.exists():
                 break
@@ -152,7 +164,7 @@ def _handle_cmoney_dialog(on_progress=None):
     dlg.set_focus()
     time.sleep(0.5)
 
-    # ── Step A: 型式選擇 → 下一步 (對應圖02的標示3) ──
+    # ── Step A: 型式選擇 → 下一步 ──
     try:
         next_btn = dlg.child_window(title_re=r"下一步.*", control_type="Button")
         if next_btn.exists(timeout=2):
@@ -160,9 +172,9 @@ def _handle_cmoney_dialog(on_progress=None):
             next_btn.click_input()
             time.sleep(2)
     except Exception:
-        pass  # 找不到下一步按鈕代表可能已經直接進入主畫面
+        pass
 
-    # ── Step B: 主對話框 → 開啟... (對應圖03的標示4) ──
+    # ── Step B: 主對話框 → 開啟... ──
     p("點擊 開啟...")
     try:
         dlg.child_window(title_re=r"開啟.*", control_type="Button").click_input()
@@ -170,7 +182,7 @@ def _handle_cmoney_dialog(on_progress=None):
         raise RuntimeError(f"找不到「開啟...」按鈕: {e}")
     time.sleep(1.5)
 
-    # ── Step C: 開啟自訂報表 → 展開使用者 → 00981A 操作日報 (對應圖04、05的標示5、6) ──
+    # ── Step C: 開啟自訂報表 → 展開使用者 → 00981A 操作日報 ──
     p("選擇 00981A 操作日報...")
     _select_cmoney_template()
     time.sleep(1)
@@ -185,20 +197,15 @@ def _handle_cmoney_dialog(on_progress=None):
     except Exception:
         send_keys("{ENTER}")
     
-    # 移除原本強制去點綠色更新箭頭的邏輯（_click_excel_refresh），
-    # 因為點擊確定後，CMoney 增益集通常就會自動拋轉資料。
     time.sleep(5)
 
 
 def _select_cmoney_template():
-    """開啟自訂報表對話框：展開「使用者」→ 點選「00981A 操作日報」→ 確定"""
     try:
-        # Dialog title = "開啟自訂報表"
         dlg = Desktop(backend="uia").window(title_re=r".*開啟自訂報表.*|.*自訂報表.*")
         dlg.set_focus()
         time.sleep(0.5)
 
-        # Find tree and expand 使用者 node
         tree = dlg.child_window(control_type="Tree")
         user_node = None
         for item in tree.children():
@@ -216,7 +223,6 @@ def _select_cmoney_template():
                 user_node.click_input()
             time.sleep(0.5)
 
-            # Click 00981A 操作日報 under 使用者
             for child in user_node.children():
                 try:
                     if "00981A" in child.window_text():
@@ -225,7 +231,6 @@ def _select_cmoney_template():
                 except Exception:
                     continue
         else:
-            # Fallback: search entire dialog for 00981A item
             try:
                 dlg.child_window(title_re=r".*00981A.*").click_input()
             except Exception:
@@ -239,34 +244,7 @@ def _select_cmoney_template():
         send_keys("{ENTER}")
 
 
-
-def _click_excel_refresh():
-    hwnd = _hwnd_by_class("XLMAIN")
-    if not hwnd:
-        return
-    try:
-        app = Application(backend="uia").connect(handle=hwnd)
-        win = app.window(handle=hwnd)
-        win.set_focus()
-        time.sleep(0.3)
-        # Try known refresh button titles
-        for title in ["更新", "重新整理", "Refresh", "↑", "Update"]:
-            try:
-                win.child_window(title=title, control_type="Button").click_input()
-                return
-            except Exception:
-                continue
-        # Fallback: second button in ribbon (first is 新增自訂表格)
-        btns = [b for b in win.descendants(control_type="Button")
-                if b.rectangle().top < 180]
-        if len(btns) >= 2:
-            btns[1].click_input()
-    except Exception as e:
-        _p(f"綠色箭頭點擊失敗（可能不需要）: {e}", "WARN")
-
-
 def _read_sheet_data(ws) -> list:
-    """Read data rows from Excel sheet via win32com. Returns list of space-joined rows."""
     try:
         used = ws.UsedRange
         rows_out = []
@@ -307,11 +285,6 @@ def _hwnd_by_class(cls: str):
 # ══════════════════════════════════════════════════════
 
 def fetch_fund_scale(on_progress=None) -> tuple:
-    """
-    Opens CMoney 小綠, searches ETF折溢價表 for 00981A,
-    reads 基金資產價值 for last 2 trading days.
-    Returns (yesterday_scale, today_scale) e.g. ("1162.4", "1165.2")
-    """
     p = lambda m, lv="INFO": _p(m, lv, on_progress)
     p("開啟 CMoney 小綠...")
 
@@ -324,17 +297,20 @@ def fetch_fund_scale(on_progress=None) -> tuple:
         if not hwnd:
             raise RuntimeError("CMoney 小綠 無法找到（請確認已安裝並可正常執行）")
 
-    # Try uia first, then win32
     win = None
     for backend in ("uia", "win32"):
         try:
             app = Application(backend=backend).connect(handle=hwnd, timeout=5)
             win = app.window(handle=hwnd)
             win.set_focus()
+            
+            # 防呆：狂按 ESC 關閉可能卡住的奇怪視窗或報錯彈窗
+            send_keys("{ESC 3}")
             time.sleep(1)
             break
         except Exception:
             continue
+            
     if win is None:
         raise RuntimeError("無法連接 CMoney 小綠視窗")
 
@@ -353,16 +329,12 @@ def fetch_fund_scale(on_progress=None) -> tuple:
 
 
 def _find_cmoney_hwnd():
-    """Find CMoney 小綠 main window handle.
-    Searches by title first, then falls back to process-based detection."""
     result = []
-
     def cb_title(hwnd, _):
         if not win32gui.IsWindowVisible(hwnd):
             return
         t = win32gui.GetWindowText(hwnd)
         cls = win32gui.GetClassName(hwnd)
-        # Match by known title keywords OR by CMoney's VB6 main form class
         if any(k in t for k in ("CMoney", "理財寶", "法人", "小綠")):
             result.append(hwnd)
         elif cls == "ThunderRT6Main" and t:
@@ -370,11 +342,9 @@ def _find_cmoney_hwnd():
 
     win32gui.EnumWindows(cb_title, None)
     if result:
-        # Prefer the largest window (main UI, not floating toolbar)
         result.sort(key=_window_area, reverse=True)
         return result[0]
 
-    # Fallback: find windows belonging to CMoney.exe process
     cmoney_exe = os.path.basename(CMONEY_EXE).lower()
     target_pids = set()
     try:
@@ -397,7 +367,6 @@ def _find_cmoney_hwnd():
         return None
 
     proc_result = []
-
     def cb_proc(hwnd, _):
         if not win32gui.IsWindowVisible(hwnd):
             return
@@ -424,10 +393,7 @@ def _window_area(hwnd):
 
 
 def _cmoney_search(win, keyword: str):
-    """Type keyword into CMoney search box. ThunderRT6Main uses custom controls."""
     found = False
-
-    # Strategy 1: UIA Edit
     try:
         edit = win.child_window(control_type="Edit", found_index=0)
         edit.click_input()
@@ -439,14 +405,12 @@ def _cmoney_search(win, keyword: str):
     except Exception:
         pass
 
-    # Strategy 2: win32 backend Edit (ThunderRT6FormDC / ThunderRT6TextBox)
     if not found:
         try:
             hwnd = win.handle
             app32 = Application(backend="win32").connect(handle=hwnd)
             w32 = app32.window(handle=hwnd)
-            edit32 = w32.child_window(class_name_re=r"Thunder.*TextBox|Thunder.*Edit|Edit",
-                                      found_index=0)
+            edit32 = w32.child_window(class_name_re=r"Thunder.*TextBox|Thunder.*Edit|Edit", found_index=0)
             edit32.click_input()
             time.sleep(0.2)
             edit32.select()
@@ -456,7 +420,6 @@ def _cmoney_search(win, keyword: str):
         except Exception as e:
             _p(f"win32 搜尋框失敗: {e}", "WARN")
 
-    # Strategy 3: Ctrl+F shortcut then type
     if not found:
         try:
             win.set_focus()
@@ -468,7 +431,6 @@ def _cmoney_search(win, keyword: str):
         except Exception as e:
             _p(f"CMoney 搜尋 Ctrl+F 失敗: {e}", "WARN")
 
-    # Strategy 4: just type (window may have focus on search by default)
     if not found:
         try:
             win.set_focus()
@@ -502,7 +464,6 @@ def _cmoney_goto_individual(win, code: str):
 
 
 def _cmoney_read_scale(win) -> tuple:
-    """Extract 基金資產價值 values (###.#) from CMoney grid text."""
     texts = []
     try:
         for ctrl in win.descendants():
@@ -516,7 +477,6 @@ def _cmoney_read_scale(win) -> tuple:
         pass
     full = "\n".join(texts)
 
-    # 基金規模 in 億: values like 1162.4, 483.0, 1233.5
     candidates = re.findall(r"\b(\d{3,4}\.\d)\b", full)
     if len(candidates) >= 2:
         return candidates[-2], candidates[-1]
@@ -525,8 +485,7 @@ def _cmoney_read_scale(win) -> tuple:
 
     raise RuntimeError(
         "無法自動讀取基金規模。\n"
-        "請在 CMoney 小綠 → ETF折溢價表 → 個股 → 00981A → 基金資產價值\n"
-        "手動取得昨天和今天的數值（例：1162.4）並填入 config.json 的 manual_scale 欄位。"
+        "請手動填入 config.json 的 manual_scale 欄位。"
     )
 
 
@@ -534,13 +493,7 @@ def _cmoney_read_scale(win) -> tuple:
 #  Step5: AI Studio 分析
 # ══════════════════════════════════════════════════════
 
-def analyze_in_aistudio(excel_data: str, yscale: str, tscale: str,
-                         on_progress=None) -> dict:
-    """
-    Pastes data into AI Studio ETF AlphaTracker, runs analysis,
-    parses 建倉/加碼/減碼/清倉, downloads chart.
-    Returns {建倉, 加碼, 減碼, 清倉, chart_path}.
-    """
+def analyze_in_aistudio(excel_data: str, yscale: str, tscale: str, on_progress=None) -> dict:
     p = lambda m, lv="INFO": _p(m, lv, on_progress)
     DOWNLOAD_DIR.mkdir(exist_ok=True)
 
@@ -555,9 +508,7 @@ def analyze_in_aistudio(excel_data: str, yscale: str, tscale: str,
         "download.directory_upgrade": True,
     })
 
-    driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager().install()), options=opts
-    )
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=opts)
     wait = WebDriverWait(driver, 60)
 
     try:
@@ -565,7 +516,6 @@ def analyze_in_aistudio(excel_data: str, yscale: str, tscale: str,
         driver.get(AI_STUDIO_URL)
         time.sleep(6)
 
-        # Wait for Google login if redirected
         for _ in range(24):
             if "aistudio.google.com" in driver.current_url:
                 break
@@ -574,10 +524,7 @@ def analyze_in_aistudio(excel_data: str, yscale: str, tscale: str,
 
         p("點擊「智慧貼上（自動合併）」...")
         try:
-            btn = wait.until(EC.element_to_be_clickable(
-                (By.XPATH,
-                 "//*[contains(text(),'智慧貼上') or contains(text(),'自動合併')]")
-            ))
+            btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(),'智慧貼上') or contains(text(),'自動合併')]")))
             btn.click()
             time.sleep(1)
         except TimeoutException:
@@ -586,17 +533,13 @@ def analyze_in_aistudio(excel_data: str, yscale: str, tscale: str,
         p("貼入 Excel 持股資料（剪貼簿）...")
         pyperclip.copy(excel_data)
         try:
-            ta = wait.until(EC.presence_of_element_located(
-                (By.CSS_SELECTOR, "textarea")
-            ))
+            ta = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "textarea")))
             ta.click()
             ta.send_keys(Keys.CONTROL, "a")
             ta.send_keys(Keys.CONTROL, "v")
         except TimeoutException:
             try:
-                ta = driver.find_element(
-                    By.CSS_SELECTOR, "[contenteditable='true']"
-                )
+                ta = driver.find_element(By.CSS_SELECTOR, "[contenteditable='true']")
                 ta.click()
                 ta.send_keys(Keys.CONTROL, "a")
                 ta.send_keys(Keys.CONTROL, "v")
@@ -606,9 +549,7 @@ def analyze_in_aistudio(excel_data: str, yscale: str, tscale: str,
 
         p(f"填入基金規模：昨天={yscale}  今天={tscale}...")
         try:
-            inputs = [i for i in driver.find_elements(
-                By.CSS_SELECTOR, "input[type='number'], input[type='text']"
-            ) if i.is_displayed()]
+            inputs = [i for i in driver.find_elements(By.CSS_SELECTOR, "input[type='number'], input[type='text']") if i.is_displayed()]
             if len(inputs) >= 2:
                 inputs[-2].clear(); inputs[-2].send_keys(yscale)
                 inputs[-1].clear(); inputs[-1].send_keys(tscale)
@@ -619,9 +560,7 @@ def analyze_in_aistudio(excel_data: str, yscale: str, tscale: str,
 
         p("點擊「開始分析」...")
         try:
-            btn = wait.until(EC.element_to_be_clickable(
-                (By.XPATH, "//*[contains(text(),'開始分析')]")
-            ))
+            btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(),'開始分析')]")))
             btn.click()
         except TimeoutException as e:
             p(f"開始分析按鈕找不到: {e}", "WARN")
@@ -650,21 +589,18 @@ def analyze_in_aistudio(excel_data: str, yscale: str, tscale: str,
 
 
 def _parse_holdings(text: str) -> dict:
-    """Parse 建倉/加碼/減碼/清倉 from AI Studio body text."""
     建倉, 加碼, 減碼, 清倉 = [], [], [], []
     lines = [l.strip() for l in text.splitlines() if l.strip()]
 
     i = 0
     while i < len(lines):
         line = lines[i]
-        # Stock code line: 4-5 digit number alone on a line
         if re.match(r"^\d{4,5}$", line) and i + 3 < len(lines):
             code       = line
             name       = lines[i + 1]
-            action_raw = lines[i + 2]   # e.g. "↑ 加碼" or "加碼"
-            change_raw = lines[i + 3]   # e.g. "+30,000" or "+30,000股"
+            action_raw = lines[i + 2]
+            change_raw = lines[i + 3]
 
-            # Determine action category
             action = ""
             if any(k in action_raw for k in ("建倉", "新增")):
                 action = "建倉"
@@ -675,20 +611,15 @@ def _parse_holdings(text: str) -> dict:
             elif any(k in action_raw for k in ("減碼", "減")):
                 action = "減碼"
 
-            # Extract share count
             m = re.search(r"([+-]?[\d,]+)", change_raw)
             shares = abs(int(m.group(1).replace(",", ""))) if m else 0
 
             if action:
                 label = f"{name}({code})"
                 if action in ("建倉", "加碼"):
-                    (建倉 if action == "建倉" else 加碼).append(
-                        f"{label}+{shares}張"
-                    )
+                    (建倉 if action == "建倉" else 加碼).append(f"{label}+{shares}張")
                 else:
-                    (清倉 if action == "清倉" else 減碼).append(
-                        f"{label}-{shares}張"
-                    )
+                    (清倉 if action == "清倉" else 減碼).append(f"{label}-{shares}張")
             i += 4
             continue
         i += 1
@@ -699,11 +630,7 @@ def _parse_holdings(text: str) -> dict:
 def _download_chart(driver, wait) -> str:
     before = set(DOWNLOAD_DIR.glob("*"))
     try:
-        btn = wait.until(EC.element_to_be_clickable(
-            (By.XPATH,
-             "//*[contains(text(),'下載分析報告圖表') or "
-             "contains(text(),'下載圖表') or contains(text(),'下載')]")
-        ))
+        btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(text(),'下載分析報告圖表') or contains(text(),'下載圖表') or contains(text(),'下載')]")))
         btn.click()
         for _ in range(20):
             time.sleep(1)
@@ -717,12 +644,7 @@ def _download_chart(driver, wait) -> str:
     return ""
 
 
-# ══════════════════════════════════════════════════════
-#  Main entry
-# ══════════════════════════════════════════════════════
-
 def run_all(on_progress=None) -> dict:
-    """Run complete data-fetch pipeline. Returns dict for poster."""
     _p("=== 全自動資料抓取開始 ===", "INFO", on_progress)
     excel_data = fetch_holdings_from_excel(on_progress)
     yscale, tscale = fetch_fund_scale(on_progress)

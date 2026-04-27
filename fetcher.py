@@ -107,7 +107,7 @@ def _trigger_cmoney_addin(excel, on_progress=None):
     
     for attempt in range(3):
         try:
-            # 暴力解法：拿回所有叫增益集的清單，直接手動抓第一個，不讓套件自行判斷
+            # 1. 找增益集標籤並點擊
             tabs = win.descendants(title="增益集", control_type="TabItem")
             if tabs:
                 try:
@@ -115,27 +115,38 @@ def _trigger_cmoney_addin(excel, on_progress=None):
                 except Exception:
                     tabs[0].click_input()
             
-            time.sleep(1.5)
+            time.sleep(1.5) # 等待選單動畫展開
 
-            # 暴力解法：拿回所有叫自訂工具列的清單，直接手動抓第一個
+            # 2. 找自訂工具列
             grps = win.descendants(title="自訂工具列", control_type="Group")
             if grps:
-                btns = grps[0].children(control_type="Button")
+                # 關鍵修正：改用 descendants 往下深挖所有子孫層級，破解俄羅斯娃娃包裝
+                btns = grps[0].descendants(control_type="Button")
                 if btns:
-                    p("成功展開增益集選單，點擊按鈕...", "INFO")
+                    p("成功深挖到增益集按鈕，點擊...", "INFO")
                     btns[0].click_input()
                     clicked_group = True
                     break
                 else:
-                    p("有自訂工具列，但找不到裡面的按鈕", "WARN")
+                    # 終極備用：如果 UIA 不承認它是 Button，抓裡面所有有大小的實體元件來點
+                    all_items = grps[0].descendants()
+                    clickable = [i for i in all_items if i.is_enabled() and i.rectangle().width() > 10 and i.rectangle().height() > 10]
+                    if clickable:
+                        p("使用備用透視法找到元件，點擊...", "INFO")
+                        clickable[0].click_input()
+                        clicked_group = True
+                        break
+                    else:
+                        p("有自訂工具列，但連隱藏的按鈕都挖不到", "WARN")
             else:
-                p(f"第 {attempt+1} 次尋找失敗，重新嘗試中...", "WARN")
+                p(f"第 {attempt+1} 次尋找自訂工具列失敗，重新嘗試中...", "WARN")
+
         except Exception as e:
             p(f"切換發生異常: {e}", "WARN")
             time.sleep(1)
 
     if not clicked_group:
-        raise RuntimeError("無法成功切換到增益集標籤，請確認 Excel 畫面狀態。")
+        raise RuntimeError("無法成功切換到增益集標籤或找不到按鈕，請確認 Excel 畫面狀態。")
 
     time.sleep(2)
     _handle_cmoney_dialog(on_progress)

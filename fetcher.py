@@ -230,7 +230,7 @@ def _handle_cmoney_dialog(on_progress=None):
 
 def _select_cmoney_template():
     try:
-        # 同樣暴力解法：拿回自訂報表視窗清單，選第一個
+        # 尋找「開啟自訂報表」對話框
         sub_dlgs = Desktop(backend="uia").windows(title_re=r".*開啟自訂報表.*|.*自訂報表.*")
         if not sub_dlgs:
             raise RuntimeError("找不到開啟自訂報表對話框")
@@ -239,41 +239,40 @@ def _select_cmoney_template():
         sub_dlg.set_focus()
         time.sleep(0.5)
 
-        trees = sub_dlg.descendants(control_type="Tree")
-        if not trees:
-            raise RuntimeError("找不到樹狀圖")
-        tree = trees[0]
-        
-        user_node = None
-        for item in tree.children():
+        # 暴力破解法 2.0：直接抓畫面上所有的「節點」
+        items = sub_dlg.descendants(control_type="TreeItem")
+        if not items:
+            items = sub_dlg.descendants()
+
+        # 1. 找「使用者」並「點兩下」強制展開
+        user_expanded = False
+        for i in items:
             try:
-                if "使用者" in item.window_text():
-                    user_node = item
+                if "使用者" in i.window_text():
+                    i.click_input(double=True)  # 關鍵：點兩下強制展開
+                    user_expanded = True
+                    time.sleep(1)  # 等待展開的動畫時間
                     break
             except Exception:
                 continue
 
-        if user_node:
-            try:
-                user_node.expand()
-            except Exception:
-                user_node.click_input()
-            time.sleep(0.5)
+        # 如果有成功展開，重新抓取畫面元素（因為展開後會多出 00981A 這個新選項）
+        if user_expanded:
+            items = sub_dlg.descendants(control_type="TreeItem")
+            if not items:
+                items = sub_dlg.descendants()
 
-            for child in user_node.children():
-                try:
-                    if "00981A" in child.window_text():
-                        child.click_input()
-                        break
-                except Exception:
-                    continue
-        else:
-            items = sub_dlg.descendants()
-            for i in items:
+        # 2. 從展開的清單中找「00981A」並點擊
+        for i in items:
+            try:
                 if "00981A" in i.window_text():
                     i.click_input()
+                    time.sleep(0.5)
                     break
+            except Exception:
+                continue
 
+        # 3. 點擊「確定」
         time.sleep(0.3)
         btns = sub_dlg.descendants(control_type="Button")
         for b in btns:

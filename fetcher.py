@@ -223,47 +223,71 @@ def _handle_cmoney_dialog(on_progress=None):
 
 
 def _select_cmoney_template():
-    try:
-        sub_dlgs = Desktop(backend="uia").windows(title_re=r".*開啟自訂報表.*|.*自訂報表.*")
-        if not sub_dlgs:
-            raise RuntimeError("找不到「開啟自訂報表」子對話框")
+    # 1. 加入「耐心等待迴圈」，給電腦 15 秒的時間讓視窗慢慢彈出來
+    sub_dlg = None
+    for _ in range(15):
+        try:
+            dlgs = Desktop(backend="uia").windows(title_re=r".*開啟自訂報表.*")
+            if dlgs:
+                sub_dlg = dlgs[0]
+                break
+        except Exception:
+            pass
+        time.sleep(1)
         
-        hwnd = sub_dlgs[0].handle
-        sub_dlgs[0].set_focus()
-        time.sleep(0.5)
+    if not sub_dlg:
+        raise RuntimeError("等了 15 秒，找不到「開啟自訂報表」子對話框")
 
-        # 核心修正：使用 Win32 API 直接命令系統展開樹狀圖 (不依賴滑鼠座標)
+    hwnd = sub_dlg.handle
+    sub_dlg.set_focus()
+    time.sleep(0.5)
+
+    # 2. 終極殺招：純鍵盤物理外掛 (完全不靠文字辨識，直接用方向鍵往下走)
+    try:
         app32 = Application(backend="win32").connect(handle=hwnd)
         win32_dlg = app32.window(handle=hwnd)
         
+        # 鎖定樹狀圖元件
         tree = win32_dlg.child_window(class_name_re=".*SysTreeView32.*")
+        tree.set_focus()
+        time.sleep(0.5)
         
-        found = False
-        for root in tree.roots():
-            if "使用者" in root.text():
-                root.expand() # 系統級距強制展開
-                time.sleep(0.5)
-                for child in root.children():
-                    if "00981A" in child.text():
-                        child.select() # 系統級距強制選取反白
-                        time.sleep(0.5)
-                        found = True
-                        break
-                break
+        # 模擬人類按鍵：
+        # [Home] 跳到第一格 (系統的)
+        # [下] 兩次，跳到第三格 (使用者)
+        # [右] 展開資料夾
+        # [下] 選擇裡面的報表 (00981A)
+        send_keys("{HOME}")
+        time.sleep(0.3)
+        send_keys("{DOWN 2}")
+        time.sleep(0.3)
+        send_keys("{RIGHT}")
+        time.sleep(1) # 等待資料夾展開動畫
+        send_keys("{DOWN}")
+        time.sleep(0.5)
         
-        if not found:
-            raise RuntimeError("在樹狀圖中找不到「使用者」或「00981A」")
-
-        # 點擊確定
-        try:
-            win32_dlg.child_window(title="確定(Y)", control_type="Button").click()
-        except:
-            send_keys("%y") # Alt+Y 快捷鍵
-            time.sleep(0.2)
-            send_keys("{ENTER}")
-
     except Exception as e:
-        raise RuntimeError(f"選取報表失敗: {e}")
+        # 萬一連元件都抓不到的備用純盲打
+        sub_dlg.set_focus()
+        send_keys("{TAB}")
+        time.sleep(0.3)
+        send_keys("{HOME}")
+        time.sleep(0.3)
+        send_keys("{DOWN 2}")
+        time.sleep(0.3)
+        send_keys("{RIGHT}")
+        time.sleep(1)
+        send_keys("{DOWN}")
+        time.sleep(0.5)
+
+    # 3. 按下確定 (Alt + Y 是 Windows 確定按鈕的預設系統捷徑)
+    try:
+        sub_dlg.set_focus()
+        send_keys("%y")
+        time.sleep(0.5)
+        send_keys("{ENTER}") # 補一槍 Enter 防止 Alt+Y 沒反應
+    except Exception:
+        pass
 
 
 def _read_sheet_data(ws) -> list:

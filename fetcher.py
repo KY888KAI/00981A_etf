@@ -243,13 +243,13 @@ def _select_cmoney_template():
         pass
     time.sleep(0.5)
 
-   # 3. 終極殺招 V3：無視內部元件，對主視窗盲打 (專治 VB6 老系統)
+    # 3. 終極殺招 V3：無視內部元件，對主視窗盲打 (專治 VB6 老系統)
     try:
-        # 直接把焦點放在整個對話框上，不去找裡面的 tree
+        # 直接把焦點放在整個對話框上，絕對不要去 child_window 找樹狀圖！
         win32_dlg.set_focus()
         
         # 稍微拉長一點點等待時間，確保 VB6 把裡面的樹狀圖都畫完
-        time.sleep(1) 
+        time.sleep(1.5) 
         
         # 直接盲按，使用數字鍵盤的加減號防呆法
         send_keys("{HOME}")     

@@ -226,66 +226,69 @@ def _handle_cmoney_dialog(on_progress=None):
 
 def _select_cmoney_template():
     try:
+        # 1. 抓取子對話框
         sub_dlgs = Desktop(backend="uia").windows(title="開啟自訂報表")
         if not sub_dlgs:
             raise RuntimeError("找不到「開啟自訂報表」子對話框")
-        sub_dlg = sub_dlgs[0]
-        sub_dlg.set_focus()
+        uia_dlg = sub_dlgs[0]
+        uia_dlg.set_focus()
         time.sleep(0.5)
 
-        # 1. 尋找「使用者」節點
-        items = sub_dlg.descendants()
-        user_found = False
-        for i in items:
-            try:
-                # 核心防呆：避開 Tree 大外框，只抓獨立的節點
-                if i.element_info.control_type in ("Tree", "Window", "Dialog"):
-                    continue
-                text = i.window_text()
-                # 嚴格比對：文字必須剛好是 "使用者" (去除空白)
-                if text and text.strip() == "使用者":
-                    i.click_input()             # 單擊選取
+        # ====== 終極武器：切換到老系統 Win32 引擎看穿樹狀圖 ======
+        hwnd = uia_dlg.handle
+        app32 = Application(backend="win32").connect(handle=hwnd)
+        win32_dlg = app32.window(handle=hwnd)
+
+        tree_success = False
+        try:
+            # 尋找微軟底層的 SysTreeView32 元件
+            tree = win32_dlg.child_window(class_name_re=".*SysTreeView32.*")
+            roots = tree.roots()
+            for r in roots:
+                if "使用者" in r.text():
+                    r.expand() # 系統級別強制展開
                     time.sleep(0.5)
-                    i.click_input(double=True)  # 雙擊強制展開
-                    time.sleep(0.5)
-                    send_keys("{RIGHT}")        # 鍵盤右鍵保險展開
-                    time.sleep(1)
-                    user_found = True
+                    for child in r.children():
+                        if "00981A" in child.text():
+                            child.click() # 系統級別精準點擊
+                            tree_success = True
+                            break
                     break
-            except Exception:
-                continue
+        except Exception as e:
+            _p(f"Win32 引擎抓取樹狀圖失敗，啟動鍵盤盲狙: {e}", "WARN")
 
-        if not user_found:
-            raise RuntimeError("找不到精準的「使用者」資料夾節點")
+        # ====== 如果連 Win32 都失效，啟動「鍵盤盲狙法」 ======
+        if not tree_success:
+            uia_dlg.set_focus()
+            send_keys("{TAB}")
+            time.sleep(0.3)
+            # 傳統樹狀圖支援直接輸入文字跳轉
+            send_keys("使用者")
+            time.sleep(0.5)
+            send_keys("{RIGHT}") # 鍵盤右鍵展開
+            time.sleep(0.5)
+            send_keys("00981A")
+            time.sleep(0.5)
 
-        # 2. 展開後，重新尋找「00981A」報表
-        items = sub_dlg.descendants()
-        report_found = False
-        for i in items:
-            try:
-                if i.element_info.control_type in ("Tree", "Window", "Dialog"):
-                    continue
-                text = i.window_text()
-                if text and "00981A" in text:
-                    i.click_input()
-                    time.sleep(0.3)
-                    i.click_input(double=True) # 雙擊直接開啟報表，等同於按確定
-                    report_found = True
-                    break
-            except Exception:
-                continue
-
-        if not report_found:
-            raise RuntimeError("在展開的清單中找不到「00981A 操作日報」")
-
+        # ====== 點擊確定 ======
         time.sleep(0.5)
-        # 3. 尋找確定按鈕 (萬一雙擊沒有成功自動關閉的話，補按確定)
-        if sub_dlg.exists(timeout=1):
-            btns = sub_dlg.descendants(control_type="Button")
+        ok_clicked = False
+        try:
+            btns = uia_dlg.descendants(control_type="Button")
             for b in btns:
-                if b.window_text() == "確定":
+                if "確定" in b.window_text():
                     b.click_input()
+                    ok_clicked = True
                     break
+        except Exception:
+            pass
+
+        if not ok_clicked:
+            # 備用：Alt+Y 是 確定(Y) 的 Windows 系統快捷鍵
+            uia_dlg.set_focus()
+            send_keys("%y")
+            time.sleep(0.3)
+            send_keys("{ENTER}")
 
     except Exception as e:
         raise RuntimeError(f"選取報表失敗: {e}")

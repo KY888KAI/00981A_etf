@@ -243,21 +243,35 @@ def _select_cmoney_template():
         pass
     time.sleep(0.5)
 
-   # 3. 升級版：直接使用 pywinauto 內建的樹狀圖路徑選擇
+   # 3. 終極殺招 V3：無視內部元件，對主視窗盲打 (專治 VB6 老系統)
     try:
-        tree = win32_dlg.child_window(class_name_re=".*SysTreeView32.*")
-        tree.set_focus()
+        # 直接把焦點放在整個對話框上，不去找裡面的 tree
+        win32_dlg.set_focus()
+        
+        # 稍微拉長一點點等待時間，確保 VB6 把裡面的樹狀圖都畫完
+        time.sleep(1) 
+        
+        # 直接盲按，使用數字鍵盤的加減號防呆法
+        send_keys("{HOME}")     
+        time.sleep(0.3)
+        send_keys("{-}")        # 強制收合「系統的」
+        time.sleep(0.3)
+        
+        send_keys("{DOWN}")     
+        time.sleep(0.3)
+        send_keys("{-}")        # 強制收合「管理者」
+        time.sleep(0.3)
+        
+        send_keys("{DOWN}")     
+        time.sleep(0.3)
+        send_keys("{+}")        # 強制展開「使用者」
+        time.sleep(1)           # 展開通常需要載入，多等一下
+        
+        send_keys("{DOWN}")     # 往下選取第一個報表 (00981A)
         time.sleep(0.5)
         
-        # 直接指定路徑，讓 pywinauto 自己去展開並點擊
-        # 注意：請確認介面上的實際文字，如果是「00981A 操作日報」就要打全名
-        target_item = tree.get_item(r"\使用者\00981A") 
-        target_item.select()
-        target_item.click_input()
-        time.sleep(1)
-        
     except Exception as e:
-        raise RuntimeError(f"系統級樹狀圖解析失敗: {e}\n(可能路徑名稱不對，可用 print(tree.texts()) 檢查)")
+        raise RuntimeError(f"VB6 盲打導航失敗: {e}")
 
     # 4. 按下確定
     time.sleep(0.5)

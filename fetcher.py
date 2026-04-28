@@ -104,23 +104,22 @@ def _trigger_cmoney_addin(excel, on_progress=None):
 
     p("嘗試切換至「增益集」標籤...")
     clicked_group = False
-    
+
     for attempt in range(3):
         try:
-            # 1. 找增益集標籤並點擊
+            # 1. 找增益集標籤並點擊 (暴力避開 2 elements error)
             tabs = win.descendants(title="增益集", control_type="TabItem")
             if tabs:
                 try:
                     tabs[0].select()
                 except Exception:
                     tabs[0].click_input()
-            
-            time.sleep(1.5) # 等待選單動畫展開
 
-            # 2. 找自訂工具列
+            time.sleep(1.5)
+
+            # 2. 找自訂工具列並點擊按鈕
             grps = win.descendants(title="自訂工具列", control_type="Group")
             if grps:
-                # 關鍵修正：改用 descendants 往下深挖所有子孫層級，破解俄羅斯娃娃包裝
                 btns = grps[0].descendants(control_type="Button")
                 if btns:
                     p("成功深挖到增益集按鈕，點擊...", "INFO")
@@ -128,25 +127,21 @@ def _trigger_cmoney_addin(excel, on_progress=None):
                     clicked_group = True
                     break
                 else:
-                    # 終極備用：如果 UIA 不承認它是 Button，抓裡面所有有大小的實體元件來點
                     all_items = grps[0].descendants()
-                    clickable = [i for i in all_items if i.is_enabled() and i.rectangle().width() > 10 and i.rectangle().height() > 10]
+                    clickable = [i for i in all_items if i.is_enabled() and i.rectangle().width() > 10]
                     if clickable:
-                        p("使用備用透視法找到元件，點擊...", "INFO")
                         clickable[0].click_input()
                         clicked_group = True
                         break
-                    else:
-                        p("有自訂工具列，但連隱藏的按鈕都挖不到", "WARN")
             else:
-                p(f"第 {attempt+1} 次尋找自訂工具列失敗，重新嘗試中...", "WARN")
+                p(f"第 {attempt+1} 次尋找自訂工具列失敗，重試中...", "WARN")
 
         except Exception as e:
             p(f"切換發生異常: {e}", "WARN")
             time.sleep(1)
 
     if not clicked_group:
-        raise RuntimeError("無法成功切換到增益集標籤或找不到按鈕，請確認 Excel 畫面狀態。")
+        raise RuntimeError("無法成功切換到增益集標籤或找不到按鈕")
 
     time.sleep(2)
     _handle_cmoney_dialog(on_progress)
@@ -158,7 +153,6 @@ def _handle_cmoney_dialog(on_progress=None):
     dlg = None
     for _ in range(15):
         try:
-            # 主對話框標題精準定位
             dlgs = Desktop(backend="uia").windows(title_re=r".*資料轉出精靈.*|.*CMoneyExcel.*")
             if dlgs:
                 dlg = dlgs[0]
@@ -183,14 +177,13 @@ def _handle_cmoney_dialog(on_progress=None):
                 time.sleep(2)
                 break
     except Exception as e:
-        p(f"點擊下一步時發生錯誤 (可能已在下一頁): {e}", "WARN")
+        p(f"點擊下一步時發生錯誤: {e}", "WARN")
 
-    # 核心防呆：檢查「開啟自訂報表」子視窗是否已經存在 (避免 Error 400 當機)
+    # 檢查子視窗是否已存在，防止 400 Error 崩潰
     sub_dlgs = Desktop(backend="uia").windows(title="開啟自訂報表")
     if not sub_dlgs:
         p("點擊 開啟...")
         try:
-            # 重新抓取主對話框 (確保換頁後抓到最新的按鈕)
             dlgs = Desktop(backend="uia").windows(title_re=r".*資料轉出精靈.*|.*CMoneyExcel.*")
             if dlgs:
                 dlg = dlgs[0]
@@ -227,13 +220,12 @@ def _handle_cmoney_dialog(on_progress=None):
     except Exception as e:
         p(f"點擊主對話框確定失敗: {e}", "WARN")
         send_keys("{ENTER}")
-    
+
     time.sleep(5)
 
 
 def _select_cmoney_template():
     try:
-        # 嚴格鎖定子對話框標題，絕對不抓錯
         sub_dlgs = Desktop(backend="uia").windows(title="開啟自訂報表")
         if not sub_dlgs:
             raise RuntimeError("找不到「開啟自訂報表」子對話框")
@@ -249,8 +241,7 @@ def _select_cmoney_template():
         for i in items:
             try:
                 if "使用者" in i.window_text():
-                    # 用最穩定的滑鼠單擊 + 鍵盤展開
-                    i.click_input()
+                    i.set_focus()
                     time.sleep(0.5)
                     send_keys("{RIGHT}")
                     time.sleep(1)
@@ -262,7 +253,6 @@ def _select_cmoney_template():
         if not user_found:
             raise RuntimeError("找不到「使用者」資料夾節點")
 
-        # 展開後重新抓取清單
         items = sub_dlg.descendants(control_type="TreeItem")
         if not items:
             items = sub_dlg.descendants()
@@ -271,6 +261,8 @@ def _select_cmoney_template():
         for i in items:
             try:
                 if "00981A" in i.window_text():
+                    i.set_focus()
+                    time.sleep(0.3)
                     i.click_input()
                     report_found = True
                     break
@@ -278,14 +270,19 @@ def _select_cmoney_template():
                 continue
 
         if not report_found:
-            raise RuntimeError("在展開的清單中找不到「00981A」")
+            raise RuntimeError("在展開的清單中找不到「00981A 操作日報」")
 
         time.sleep(0.5)
         btns = sub_dlg.descendants(control_type="Button")
+        ok_clicked = False
         for b in btns:
             if b.window_text() == "確定":
                 b.click_input()
+                ok_clicked = True
                 break
+
+        if not ok_clicked:
+            raise RuntimeError("找不到自訂報表的「確定」按鈕")
 
     except Exception as e:
         raise RuntimeError(f"選取報表失敗: {e}")

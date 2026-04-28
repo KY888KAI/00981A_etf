@@ -223,48 +223,55 @@ def _handle_cmoney_dialog(on_progress=None):
 
 
 def _select_cmoney_template():
+    # 1. 等待對話框出現
+    sub_hwnd = 0
+    for _ in range(15):
+        sub_hwnd = win32gui.FindWindow(None, "開啟自訂報表")
+        if sub_hwnd:
+            break
+        time.sleep(1)
+
+    if not sub_hwnd:
+        raise RuntimeError("等了 15 秒，系統底層依然找不到「開啟自訂報表」對話框")
+
+    # 2. 連接視窗 (加入 try-except 忽略 SetForegroundWindow 報錯)
+    app32 = Application(backend="win32").connect(handle=sub_hwnd)
+    win32_dlg = app32.window(handle=sub_hwnd)
     try:
-        # 1. 徹底放棄 UIA，改用最底層的 win32gui 直接從系統抓視窗
-        sub_hwnd = 0
-        for _ in range(15):
-            # 直接問 Windows 系統：有沒有標題叫這個的視窗？
-            sub_hwnd = win32gui.FindWindow(None, "開啟自訂報表")
-            if sub_hwnd:
-                break
-            time.sleep(1)
-
-        if not sub_hwnd:
-            raise RuntimeError("等了 15 秒，系統底層依然找不到「開啟自訂報表」對話框")
-
-        # 2. 連接視窗並強制鎖定到最上層
-        app32 = Application(backend="win32").connect(handle=sub_hwnd)
-        win32_dlg = app32.window(handle=sub_hwnd)
         win32_dlg.set_focus()
+    except Exception:
+        pass # 如果已經在最上層導致報錯，就不管它，繼續執行
+    time.sleep(0.5)
+
+    # 3. 鎖定樹狀圖
+    try:
+        tree = win32_dlg.child_window(class_name_re=".*SysTreeView32.*")
+        tree.set_focus()
+    except Exception:
+        pass
+    time.sleep(0.5)
+
+    # 4. 鍵盤物理外掛 (拆解動作，放慢速度，確保老系統跟得上)
+    try:
+        send_keys("{HOME}")     # 回到最頂層「系統的」
         time.sleep(0.5)
-
-        # 3. 鎖定樹狀圖，確保鍵盤指令絕對不會送錯地方
-        try:
-            tree = win32_dlg.child_window(class_name_re=".*SysTreeView32.*")
-            tree.set_focus()
-            time.sleep(0.5)
-        except Exception as e:
-            _p(f"無法直接鎖定樹狀圖，嘗試盲打 ({e})", "WARN")
-
-        # 4. 鍵盤物理外掛連招 (Konami Code)
-        send_keys("{HOME}")     # 回到最頂層 (系統的)
-        time.sleep(0.3)
-        send_keys("{DOWN 2}")   # 往下兩格 (使用者)
-        time.sleep(0.3)
-        send_keys("{RIGHT}")    # 展開
-        time.sleep(1)           # 等待展開動畫
-        send_keys("{DOWN}")     # 往下選取第一個報表 (00981A)
+        
+        send_keys("{DOWN}")     # 第一下往下：來到「管理者」
+        time.sleep(0.5)
+        
+        send_keys("{DOWN}")     # 第二下往下：來到「使用者」
+        time.sleep(0.5)
+        
+        send_keys("{RIGHT}")    # 展開「使用者」
+        time.sleep(1.5)         # 多給一點時間等待資料夾展開動畫
+        
+        send_keys("{DOWN}")     # 往下選取裡面的第一個報表 (00981A)
         time.sleep(0.5)
 
         # 5. 按下確定
         try:
             win32_dlg.child_window(title="確定(Y)", control_type="Button").click()
         except Exception:
-            win32_dlg.set_focus()
             send_keys("%y")     # 備用快捷鍵 Alt+Y
             time.sleep(0.3)
             send_keys("{ENTER}")

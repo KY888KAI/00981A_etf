@@ -223,71 +223,54 @@ def _handle_cmoney_dialog(on_progress=None):
 
 
 def _select_cmoney_template():
-    # 1. 加入「耐心等待迴圈」，給電腦 15 秒的時間讓視窗慢慢彈出來
-    sub_dlg = None
-    for _ in range(15):
-        try:
-            dlgs = Desktop(backend="uia").windows(title_re=r".*開啟自訂報表.*")
-            if dlgs:
-                sub_dlg = dlgs[0]
+    try:
+        # 1. 徹底放棄 UIA，改用最底層的 win32gui 直接從系統抓視窗
+        sub_hwnd = 0
+        for _ in range(15):
+            # 直接問 Windows 系統：有沒有標題叫這個的視窗？
+            sub_hwnd = win32gui.FindWindow(None, "開啟自訂報表")
+            if sub_hwnd:
                 break
+            time.sleep(1)
+
+        if not sub_hwnd:
+            raise RuntimeError("等了 15 秒，系統底層依然找不到「開啟自訂報表」對話框")
+
+        # 2. 連接視窗並強制鎖定到最上層
+        app32 = Application(backend="win32").connect(handle=sub_hwnd)
+        win32_dlg = app32.window(handle=sub_hwnd)
+        win32_dlg.set_focus()
+        time.sleep(0.5)
+
+        # 3. 鎖定樹狀圖，確保鍵盤指令絕對不會送錯地方
+        try:
+            tree = win32_dlg.child_window(class_name_re=".*SysTreeView32.*")
+            tree.set_focus()
+            time.sleep(0.5)
+        except Exception as e:
+            _p(f"無法直接鎖定樹狀圖，嘗試盲打 ({e})", "WARN")
+
+        # 4. 鍵盤物理外掛連招 (Konami Code)
+        send_keys("{HOME}")     # 回到最頂層 (系統的)
+        time.sleep(0.3)
+        send_keys("{DOWN 2}")   # 往下兩格 (使用者)
+        time.sleep(0.3)
+        send_keys("{RIGHT}")    # 展開
+        time.sleep(1)           # 等待展開動畫
+        send_keys("{DOWN}")     # 往下選取第一個報表 (00981A)
+        time.sleep(0.5)
+
+        # 5. 按下確定
+        try:
+            win32_dlg.child_window(title="確定(Y)", control_type="Button").click()
         except Exception:
-            pass
-        time.sleep(1)
-        
-    if not sub_dlg:
-        raise RuntimeError("等了 15 秒，找不到「開啟自訂報表」子對話框")
+            win32_dlg.set_focus()
+            send_keys("%y")     # 備用快捷鍵 Alt+Y
+            time.sleep(0.3)
+            send_keys("{ENTER}")
 
-    hwnd = sub_dlg.handle
-    sub_dlg.set_focus()
-    time.sleep(0.5)
-
-    # 2. 終極殺招：純鍵盤物理外掛 (完全不靠文字辨識，直接用方向鍵往下走)
-    try:
-        app32 = Application(backend="win32").connect(handle=hwnd)
-        win32_dlg = app32.window(handle=hwnd)
-        
-        # 鎖定樹狀圖元件
-        tree = win32_dlg.child_window(class_name_re=".*SysTreeView32.*")
-        tree.set_focus()
-        time.sleep(0.5)
-        
-        # 模擬人類按鍵：
-        # [Home] 跳到第一格 (系統的)
-        # [下] 兩次，跳到第三格 (使用者)
-        # [右] 展開資料夾
-        # [下] 選擇裡面的報表 (00981A)
-        send_keys("{HOME}")
-        time.sleep(0.3)
-        send_keys("{DOWN 2}")
-        time.sleep(0.3)
-        send_keys("{RIGHT}")
-        time.sleep(1) # 等待資料夾展開動畫
-        send_keys("{DOWN}")
-        time.sleep(0.5)
-        
     except Exception as e:
-        # 萬一連元件都抓不到的備用純盲打
-        sub_dlg.set_focus()
-        send_keys("{TAB}")
-        time.sleep(0.3)
-        send_keys("{HOME}")
-        time.sleep(0.3)
-        send_keys("{DOWN 2}")
-        time.sleep(0.3)
-        send_keys("{RIGHT}")
-        time.sleep(1)
-        send_keys("{DOWN}")
-        time.sleep(0.5)
-
-    # 3. 按下確定 (Alt + Y 是 Windows 確定按鈕的預設系統捷徑)
-    try:
-        sub_dlg.set_focus()
-        send_keys("%y")
-        time.sleep(0.5)
-        send_keys("{ENTER}") # 補一槍 Enter 防止 Alt+Y 沒反應
-    except Exception:
-        pass
+        raise RuntimeError(f"選取報表失敗: {e}")
 
 
 def _read_sheet_data(ws) -> list:

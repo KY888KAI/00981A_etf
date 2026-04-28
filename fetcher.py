@@ -107,7 +107,6 @@ def _trigger_cmoney_addin(excel, on_progress=None):
 
     for attempt in range(3):
         try:
-            # 1. 找增益集標籤並點擊 (暴力避開 2 elements error)
             tabs = win.descendants(title="增益集", control_type="TabItem")
             if tabs:
                 try:
@@ -117,7 +116,6 @@ def _trigger_cmoney_addin(excel, on_progress=None):
 
             time.sleep(1.5)
 
-            # 2. 找自訂工具列並點擊按鈕
             grps = win.descendants(title="自訂工具列", control_type="Group")
             if grps:
                 btns = grps[0].descendants(control_type="Button")
@@ -179,8 +177,8 @@ def _handle_cmoney_dialog(on_progress=None):
     except Exception as e:
         p(f"點擊下一步時發生錯誤: {e}", "WARN")
 
-    # 檢查子視窗是否已存在，防止 400 Error 崩潰
-    sub_dlgs = Desktop(backend="uia").windows(title="開啟自訂報表")
+    # 檢查子視窗是否已存在
+    sub_dlgs = Desktop(backend="uia").windows(title_re=r".*開啟自訂報表.*|.*自訂報表.*")
     if not sub_dlgs:
         p("點擊 開啟...")
         try:
@@ -226,68 +224,42 @@ def _handle_cmoney_dialog(on_progress=None):
 
 def _select_cmoney_template():
     try:
-        # 1. 抓取子對話框
-        sub_dlgs = Desktop(backend="uia").windows(title="開啟自訂報表")
+        sub_dlgs = Desktop(backend="uia").windows(title_re=r".*開啟自訂報表.*|.*自訂報表.*")
         if not sub_dlgs:
             raise RuntimeError("找不到「開啟自訂報表」子對話框")
-        uia_dlg = sub_dlgs[0]
-        uia_dlg.set_focus()
+        
+        hwnd = sub_dlgs[0].handle
+        sub_dlgs[0].set_focus()
         time.sleep(0.5)
 
-        # ====== 終極武器：切換到老系統 Win32 引擎看穿樹狀圖 ======
-        hwnd = uia_dlg.handle
+        # 核心修正：使用 Win32 API 直接命令系統展開樹狀圖 (不依賴滑鼠座標)
         app32 = Application(backend="win32").connect(handle=hwnd)
         win32_dlg = app32.window(handle=hwnd)
+        
+        tree = win32_dlg.child_window(class_name_re=".*SysTreeView32.*")
+        
+        found = False
+        for root in tree.roots():
+            if "使用者" in root.text():
+                root.expand() # 系統級距強制展開
+                time.sleep(0.5)
+                for child in root.children():
+                    if "00981A" in child.text():
+                        child.select() # 系統級距強制選取反白
+                        time.sleep(0.5)
+                        found = True
+                        break
+                break
+        
+        if not found:
+            raise RuntimeError("在樹狀圖中找不到「使用者」或「00981A」")
 
-        tree_success = False
+        # 點擊確定
         try:
-            # 尋找微軟底層的 SysTreeView32 元件
-            tree = win32_dlg.child_window(class_name_re=".*SysTreeView32.*")
-            roots = tree.roots()
-            for r in roots:
-                if "使用者" in r.text():
-                    r.expand() # 系統級別強制展開
-                    time.sleep(0.5)
-                    for child in r.children():
-                        if "00981A" in child.text():
-                            child.click() # 系統級別精準點擊
-                            tree_success = True
-                            break
-                    break
-        except Exception as e:
-            _p(f"Win32 引擎抓取樹狀圖失敗，啟動鍵盤盲狙: {e}", "WARN")
-
-        # ====== 如果連 Win32 都失效，啟動「鍵盤盲狙法」 ======
-        if not tree_success:
-            uia_dlg.set_focus()
-            send_keys("{TAB}")
-            time.sleep(0.3)
-            # 傳統樹狀圖支援直接輸入文字跳轉
-            send_keys("使用者")
-            time.sleep(0.5)
-            send_keys("{RIGHT}") # 鍵盤右鍵展開
-            time.sleep(0.5)
-            send_keys("00981A")
-            time.sleep(0.5)
-
-        # ====== 點擊確定 ======
-        time.sleep(0.5)
-        ok_clicked = False
-        try:
-            btns = uia_dlg.descendants(control_type="Button")
-            for b in btns:
-                if "確定" in b.window_text():
-                    b.click_input()
-                    ok_clicked = True
-                    break
-        except Exception:
-            pass
-
-        if not ok_clicked:
-            # 備用：Alt+Y 是 確定(Y) 的 Windows 系統快捷鍵
-            uia_dlg.set_focus()
-            send_keys("%y")
-            time.sleep(0.3)
+            win32_dlg.child_window(title="確定(Y)", control_type="Button").click()
+        except:
+            send_keys("%y") # Alt+Y 快捷鍵
+            time.sleep(0.2)
             send_keys("{ENTER}")
 
     except Exception as e:
@@ -353,12 +325,10 @@ def fetch_fund_scale(on_progress=None) -> tuple:
             app = Application(backend=backend).connect(handle=hwnd, timeout=5)
             win = app.window(handle=hwnd)
             win.set_focus()
-            send_keys("{ESC 3}")
             time.sleep(1)
             break
         except Exception:
             continue
-            
     if win is None:
         raise RuntimeError("無法連接 CMoney 小綠視窗")
 
@@ -383,6 +353,11 @@ def _find_cmoney_hwnd():
             return
         t = win32gui.GetWindowText(hwnd)
         cls = win32gui.GetClassName(hwnd)
+        
+        # 核心修正：嚴格排除 Excel 增益集視窗，防止小綠認錯人跑去亂打字！
+        if "CMoneyExcel" in t or "資料轉出精靈" in t or "自訂報表" in t:
+            return
+            
         if any(k in t for k in ("CMoney", "理財寶", "法人", "小綠")):
             result.append(hwnd)
         elif cls == "ThunderRT6Main" and t:
@@ -492,7 +467,7 @@ def _cmoney_search(win, keyword: str):
 def _cmoney_goto_individual(win, code: str):
     for ctrl_type in ("TabItem", "RadioButton"):
         try:
-            win.child_window(title="個股", control_type=ctrl_type, found_index=0).click_input()
+            win.child_window(title="個股", control_type=ctrl_type).click_input()
             time.sleep(0.5)
             break
         except Exception:
@@ -533,7 +508,8 @@ def _cmoney_read_scale(win) -> tuple:
 
     raise RuntimeError(
         "無法自動讀取基金規模。\n"
-        "請手動填入 config.json 的 manual_scale 欄位。"
+        "請在 CMoney 小綠 → ETF折溢價表 → 個股 → 00981A → 基金資產價值\n"
+        "手動取得昨天和今天的數值（例：1162.4）並填入 config.json 的 manual_scale 欄位。"
     )
 
 

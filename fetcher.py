@@ -158,17 +158,17 @@ def _handle_cmoney_dialog(on_progress=None):
     dlg = None
     for _ in range(15):
         try:
-            # 暴力解法：拿回所有叫這個名字的視窗清單，直接選第一個 [0] 避開當機
-            dlgs = Desktop(backend="uia").windows(title_re=r".*CMoneyExcel.*|.*資料匯出.*|.*資料轉出.*")
+            # 主對話框標題精準定位
+            dlgs = Desktop(backend="uia").windows(title_re=r".*資料轉出精靈.*|.*CMoneyExcel.*")
             if dlgs:
                 dlg = dlgs[0]
                 break
         except Exception:
             pass
         time.sleep(1)
-        
+
     if not dlg:
-        raise RuntimeError("CMoneyExcel 對話框未出現")
+        raise RuntimeError("主對話框 (資料轉出精靈) 未出現")
 
     dlg.set_focus()
     time.sleep(0.5)
@@ -185,25 +185,28 @@ def _handle_cmoney_dialog(on_progress=None):
     except Exception as e:
         p(f"點擊下一步時發生錯誤 (可能已在下一頁): {e}", "WARN")
 
-    p("點擊 開啟...")
-    try:
-        opened = False
-        # 換頁後重新抓一次視窗清單
-        dlgs = Desktop(backend="uia").windows(title_re=r".*CMoneyExcel.*|.*資料匯出.*|.*資料轉出.*")
-        if dlgs:
-            dlg = dlgs[0]
-            btns = dlg.descendants(control_type="Button")
-            for b in btns:
-                if "開啟" in b.window_text():
-                    b.click_input()
-                    opened = True
-                    break
-        if not opened:
-            raise RuntimeError("畫面上找不到「開啟...」按鈕")
-    except Exception as e:
-        raise RuntimeError(f"尋找「開啟...」按鈕失敗: {e}")
-        
-    time.sleep(1.5)
+    # 核心防呆：檢查「開啟自訂報表」子視窗是否已經存在 (避免 Error 400 當機)
+    sub_dlgs = Desktop(backend="uia").windows(title="開啟自訂報表")
+    if not sub_dlgs:
+        p("點擊 開啟...")
+        try:
+            # 重新抓取主對話框 (確保換頁後抓到最新的按鈕)
+            dlgs = Desktop(backend="uia").windows(title_re=r".*資料轉出精靈.*|.*CMoneyExcel.*")
+            if dlgs:
+                dlg = dlgs[0]
+                dlg.set_focus()
+                btns = dlg.descendants(control_type="Button")
+                opened = False
+                for b in btns:
+                    if "開啟" in b.window_text():
+                        b.click_input()
+                        opened = True
+                        break
+                if not opened:
+                    raise RuntimeError("畫面上找不到「開啟...」按鈕")
+        except Exception as e:
+            raise RuntimeError(f"尋找「開啟...」按鈕失敗: {e}")
+        time.sleep(1.5)
 
     p("選擇 00981A 操作日報...")
     _select_cmoney_template()
@@ -211,7 +214,7 @@ def _handle_cmoney_dialog(on_progress=None):
 
     p("主對話框 → 確定...")
     try:
-        dlgs = Desktop(backend="uia").windows(title_re=r".*CMoneyExcel.*|.*資料匯出.*|.*資料轉出.*")
+        dlgs = Desktop(backend="uia").windows(title_re=r".*資料轉出精靈.*|.*CMoneyExcel.*")
         if dlgs:
             dlg = dlgs[0]
             dlg.set_focus()
@@ -230,15 +233,14 @@ def _handle_cmoney_dialog(on_progress=None):
 
 def _select_cmoney_template():
     try:
-        # 1. 抓取子對話框
-        sub_dlgs = Desktop(backend="uia").windows(title_re=r".*開啟自訂報表.*|.*自訂報表.*")
+        # 嚴格鎖定子對話框標題，絕對不抓錯
+        sub_dlgs = Desktop(backend="uia").windows(title="開啟自訂報表")
         if not sub_dlgs:
-            raise RuntimeError("找不到「開啟自訂報表」對話框")
+            raise RuntimeError("找不到「開啟自訂報表」子對話框")
         sub_dlg = sub_dlgs[0]
         sub_dlg.set_focus()
         time.sleep(0.5)
 
-        # 2. 尋找「使用者」節點
         items = sub_dlg.descendants(control_type="TreeItem")
         if not items:
             items = sub_dlg.descendants()
@@ -247,10 +249,9 @@ def _select_cmoney_template():
         for i in items:
             try:
                 if "使用者" in i.window_text():
-                    # 核心修正：不用滑鼠點！直接要求 Windows 將焦點強制移到它身上
-                    i.set_focus()
+                    # 用最穩定的滑鼠單擊 + 鍵盤展開
+                    i.click_input()
                     time.sleep(0.5)
-                    # 焦點在它身上後，按下右鍵保證展開
                     send_keys("{RIGHT}")
                     time.sleep(1)
                     user_found = True
@@ -261,7 +262,7 @@ def _select_cmoney_template():
         if not user_found:
             raise RuntimeError("找不到「使用者」資料夾節點")
 
-        # 3. 展開後重新抓取清單，尋找「00981A」
+        # 展開後重新抓取清單
         items = sub_dlg.descendants(control_type="TreeItem")
         if not items:
             items = sub_dlg.descendants()
@@ -270,32 +271,23 @@ def _select_cmoney_template():
         for i in items:
             try:
                 if "00981A" in i.window_text():
-                    i.set_focus() # 同樣用焦點鎖定，讓清單自動捲動到它身上
-                    time.sleep(0.3)
-                    i.click_input() # 焦點鎖定後，滑鼠補一槍確保選取
+                    i.click_input()
                     report_found = True
                     break
             except Exception:
                 continue
 
         if not report_found:
-            raise RuntimeError("在展開的清單中找不到「00981A 操作日報」")
+            raise RuntimeError("在展開的清單中找不到「00981A」")
 
-        # 4. 點擊「確定」
         time.sleep(0.5)
         btns = sub_dlg.descendants(control_type="Button")
-        ok_clicked = False
         for b in btns:
             if b.window_text() == "確定":
                 b.click_input()
-                ok_clicked = True
                 break
-        
-        if not ok_clicked:
-            raise RuntimeError("找不到自訂報表的「確定」按鈕")
 
     except Exception as e:
-        # 核心修正：如果出錯就直接中斷並顯示錯誤，絕對不自作聰明硬按 Enter！
         raise RuntimeError(f"選取報表失敗: {e}")
 
 

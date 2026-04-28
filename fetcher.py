@@ -233,17 +233,22 @@ def _select_cmoney_template():
         sub_dlg.set_focus()
         time.sleep(0.5)
 
-        items = sub_dlg.descendants(control_type="TreeItem")
-        if not items:
-            items = sub_dlg.descendants()
-
+        # 1. 尋找「使用者」節點
+        items = sub_dlg.descendants()
         user_found = False
         for i in items:
             try:
-                if "使用者" in i.window_text():
-                    i.set_focus()
+                # 核心防呆：避開 Tree 大外框，只抓獨立的節點
+                if i.element_info.control_type in ("Tree", "Window", "Dialog"):
+                    continue
+                text = i.window_text()
+                # 嚴格比對：文字必須剛好是 "使用者" (去除空白)
+                if text and text.strip() == "使用者":
+                    i.click_input()             # 單擊選取
                     time.sleep(0.5)
-                    send_keys("{RIGHT}")
+                    i.click_input(double=True)  # 雙擊強制展開
+                    time.sleep(0.5)
+                    send_keys("{RIGHT}")        # 鍵盤右鍵保險展開
                     time.sleep(1)
                     user_found = True
                     break
@@ -251,19 +256,20 @@ def _select_cmoney_template():
                 continue
 
         if not user_found:
-            raise RuntimeError("找不到「使用者」資料夾節點")
+            raise RuntimeError("找不到精準的「使用者」資料夾節點")
 
-        items = sub_dlg.descendants(control_type="TreeItem")
-        if not items:
-            items = sub_dlg.descendants()
-
+        # 2. 展開後，重新尋找「00981A」報表
+        items = sub_dlg.descendants()
         report_found = False
         for i in items:
             try:
-                if "00981A" in i.window_text():
-                    i.set_focus()
-                    time.sleep(0.3)
+                if i.element_info.control_type in ("Tree", "Window", "Dialog"):
+                    continue
+                text = i.window_text()
+                if text and "00981A" in text:
                     i.click_input()
+                    time.sleep(0.3)
+                    i.click_input(double=True) # 雙擊直接開啟報表，等同於按確定
                     report_found = True
                     break
             except Exception:
@@ -273,16 +279,13 @@ def _select_cmoney_template():
             raise RuntimeError("在展開的清單中找不到「00981A 操作日報」")
 
         time.sleep(0.5)
-        btns = sub_dlg.descendants(control_type="Button")
-        ok_clicked = False
-        for b in btns:
-            if b.window_text() == "確定":
-                b.click_input()
-                ok_clicked = True
-                break
-
-        if not ok_clicked:
-            raise RuntimeError("找不到自訂報表的「確定」按鈕")
+        # 3. 尋找確定按鈕 (萬一雙擊沒有成功自動關閉的話，補按確定)
+        if sub_dlg.exists(timeout=1):
+            btns = sub_dlg.descendants(control_type="Button")
+            for b in btns:
+                if b.window_text() == "確定":
+                    b.click_input()
+                    break
 
     except Exception as e:
         raise RuntimeError(f"選取報表失敗: {e}")

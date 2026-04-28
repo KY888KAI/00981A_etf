@@ -243,15 +243,19 @@ def _select_cmoney_template():
         pass
     time.sleep(0.5)
 
-    # 3. 終極殺招 V3：無視內部元件，對主視窗盲打 (專治 VB6 老系統)
+   # 3. 終極殺招 V4：坐標強行奪取焦點 + 盲打 (專治 VB6 焦點遺失)
     try:
-        # 直接把焦點放在整個對話框上，絕對不要去 child_window 找樹狀圖！
+        # 直接把焦點放在整個對話框上
         win32_dlg.set_focus()
+        time.sleep(1) 
         
-        # 稍微拉長一點點等待時間，確保 VB6 把裡面的樹狀圖都畫完
-        time.sleep(1.5) 
+        # 【關鍵修正 1：奪取樹狀圖焦點】
+        # 直接點擊對話框左側 (X=80, Y=150) 的位置，確保鍵盤游標真的落在樹狀圖裡！
+        # 就算剛好點到別的資料夾也沒關係，接下來的 HOME 鍵會重置位置
+        win32_dlg.click_input(coords=(80, 150))
+        time.sleep(0.5)
         
-        # 直接盲按，使用數字鍵盤的加減號防呆法
+        # 開始盲按
         send_keys("{HOME}")     
         time.sleep(0.3)
         send_keys("{-}")        # 強制收合「系統的」
@@ -268,6 +272,11 @@ def _select_cmoney_template():
         time.sleep(1)           # 展開通常需要載入，多等一下
         
         send_keys("{DOWN}")     # 往下選取第一個報表 (00981A)
+        time.sleep(0.3)
+        
+        # 【關鍵修正 2：觸發選取】
+        # 補上空白鍵，強迫系統將該節點反白，藉此喚醒「確定(Y)」按鈕
+        send_keys("{SPACE}")    
         time.sleep(0.5)
         
     except Exception as e:

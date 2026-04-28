@@ -230,39 +230,28 @@ def _handle_cmoney_dialog(on_progress=None):
 
 def _select_cmoney_template():
     try:
-        # 尋找「開啟自訂報表」對話框
         sub_dlgs = Desktop(backend="uia").windows(title_re=r".*開啟自訂報表.*|.*自訂報表.*")
         if not sub_dlgs:
             raise RuntimeError("找不到開啟自訂報表對話框")
         sub_dlg = sub_dlgs[0]
-        
         sub_dlg.set_focus()
         time.sleep(0.5)
 
-        # 暴力破解法 2.0：直接抓畫面上所有的「節點」
-        items = sub_dlg.descendants(control_type="TreeItem")
-        if not items:
-            items = sub_dlg.descendants()
-
-        # 1. 找「使用者」並「點兩下」強制展開
-        user_expanded = False
+        # 1. 尋找「使用者」，單擊選取後，用鍵盤「右方向鍵」強制展開
+        items = sub_dlg.descendants()
         for i in items:
             try:
                 if "使用者" in i.window_text():
-                    i.click_input(double=True)  # 關鍵：點兩下強制展開
-                    user_expanded = True
-                    time.sleep(1)  # 等待展開的動畫時間
+                    i.click_input() # 先單擊讓它反白
+                    time.sleep(0.5)
+                    send_keys("{RIGHT}") # 模擬鍵盤按下「右」方向鍵，這是 Windows 內建展開資料夾的快捷鍵
+                    time.sleep(1) # 等待展開動畫
                     break
             except Exception:
                 continue
 
-        # 如果有成功展開，重新抓取畫面元素（因為展開後會多出 00981A 這個新選項）
-        if user_expanded:
-            items = sub_dlg.descendants(control_type="TreeItem")
-            if not items:
-                items = sub_dlg.descendants()
-
-        # 2. 從展開的清單中找「00981A」並點擊
+        # 2. 重新抓取展開後的清單，尋找「00981A」並點擊
+        items = sub_dlg.descendants()
         for i in items:
             try:
                 if "00981A" in i.window_text():
@@ -273,7 +262,6 @@ def _select_cmoney_template():
                 continue
 
         # 3. 點擊「確定」
-        time.sleep(0.3)
         btns = sub_dlg.descendants(control_type="Button")
         for b in btns:
             if b.window_text() == "確定":

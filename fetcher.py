@@ -230,47 +230,73 @@ def _handle_cmoney_dialog(on_progress=None):
 
 def _select_cmoney_template():
     try:
+        # 1. 抓取子對話框
         sub_dlgs = Desktop(backend="uia").windows(title_re=r".*開啟自訂報表.*|.*自訂報表.*")
         if not sub_dlgs:
-            raise RuntimeError("找不到開啟自訂報表對話框")
+            raise RuntimeError("找不到「開啟自訂報表」對話框")
         sub_dlg = sub_dlgs[0]
         sub_dlg.set_focus()
         time.sleep(0.5)
 
-        # 1. 尋找「使用者」，單擊選取後，用鍵盤「右方向鍵」強制展開
-        items = sub_dlg.descendants()
+        # 2. 尋找「使用者」節點
+        items = sub_dlg.descendants(control_type="TreeItem")
+        if not items:
+            items = sub_dlg.descendants()
+
+        user_found = False
         for i in items:
             try:
                 if "使用者" in i.window_text():
-                    i.click_input() # 先單擊讓它反白
+                    # 核心修正：不用滑鼠點！直接要求 Windows 將焦點強制移到它身上
+                    i.set_focus()
                     time.sleep(0.5)
-                    send_keys("{RIGHT}") # 模擬鍵盤按下「右」方向鍵，這是 Windows 內建展開資料夾的快捷鍵
-                    time.sleep(1) # 等待展開動畫
+                    # 焦點在它身上後，按下右鍵保證展開
+                    send_keys("{RIGHT}")
+                    time.sleep(1)
+                    user_found = True
                     break
             except Exception:
                 continue
 
-        # 2. 重新抓取展開後的清單，尋找「00981A」並點擊
-        items = sub_dlg.descendants()
+        if not user_found:
+            raise RuntimeError("找不到「使用者」資料夾節點")
+
+        # 3. 展開後重新抓取清單，尋找「00981A」
+        items = sub_dlg.descendants(control_type="TreeItem")
+        if not items:
+            items = sub_dlg.descendants()
+
+        report_found = False
         for i in items:
             try:
                 if "00981A" in i.window_text():
-                    i.click_input()
-                    time.sleep(0.5)
+                    i.set_focus() # 同樣用焦點鎖定，讓清單自動捲動到它身上
+                    time.sleep(0.3)
+                    i.click_input() # 焦點鎖定後，滑鼠補一槍確保選取
+                    report_found = True
                     break
             except Exception:
                 continue
 
-        # 3. 點擊「確定」
+        if not report_found:
+            raise RuntimeError("在展開的清單中找不到「00981A 操作日報」")
+
+        # 4. 點擊「確定」
+        time.sleep(0.5)
         btns = sub_dlg.descendants(control_type="Button")
+        ok_clicked = False
         for b in btns:
             if b.window_text() == "確定":
                 b.click_input()
+                ok_clicked = True
                 break
+        
+        if not ok_clicked:
+            raise RuntimeError("找不到自訂報表的「確定」按鈕")
 
     except Exception as e:
-        _p(f"開啟自訂報表失敗: {e}", "WARN")
-        send_keys("{ENTER}")
+        # 核心修正：如果出錯就直接中斷並顯示錯誤，絕對不自作聰明硬按 Enter！
+        raise RuntimeError(f"選取報表失敗: {e}")
 
 
 def _read_sheet_data(ws) -> list:

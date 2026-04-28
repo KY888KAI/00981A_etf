@@ -223,7 +223,7 @@ def _handle_cmoney_dialog(on_progress=None):
 
 
 def _select_cmoney_template():
-    # 1. 等待對話框出現
+    # 1. 15秒耐心等待對話框出現
     sub_hwnd = 0
     for _ in range(15):
         sub_hwnd = win32gui.FindWindow(None, "開啟自訂報表")
@@ -234,50 +234,57 @@ def _select_cmoney_template():
     if not sub_hwnd:
         raise RuntimeError("等了 15 秒，系統底層依然找不到「開啟自訂報表」對話框")
 
-    # 2. 連接視窗 (加入 try-except 忽略 SetForegroundWindow 報錯)
+    # 2. 連接視窗
     app32 = Application(backend="win32").connect(handle=sub_hwnd)
     win32_dlg = app32.window(handle=sub_hwnd)
     try:
         win32_dlg.set_focus()
     except Exception:
-        pass # 如果已經在最上層導致報錯，就不管它，繼續執行
-    time.sleep(0.5)
-
-    # 3. 鎖定樹狀圖
-    try:
-        tree = win32_dlg.child_window(class_name_re=".*SysTreeView32.*")
-        tree.set_focus()
-    except Exception:
         pass
     time.sleep(0.5)
 
-    # 4. 鍵盤物理外掛 (拆解動作，放慢速度，確保老系統跟得上)
+    # 3. 終極殺招：直接讀取樹狀圖的真實節點 (不依賴鍵盤盲打)
     try:
-        send_keys("{HOME}")     # 回到最頂層「系統的」
-        time.sleep(0.5)
+        # 抓取微軟底層的樹狀圖元件
+        tree = win32_dlg.child_window(class_name_re=".*SysTreeView32.*")
         
-        send_keys("{DOWN}")     # 第一下往下：來到「管理者」
-        time.sleep(0.5)
+        # 取得所有第一層的資料夾 (系統的、管理者、使用者)
+        roots = tree.roots()
+        target_found = False
         
-        send_keys("{DOWN}")     # 第二下往下：來到「使用者」
-        time.sleep(0.5)
-        
-        send_keys("{RIGHT}")    # 展開「使用者」
-        time.sleep(1.5)         # 多給一點時間等待資料夾展開動畫
-        
-        send_keys("{DOWN}")     # 往下選取裡面的第一個報表 (00981A)
-        time.sleep(0.5)
+        for r in roots:
+            if "使用者" in r.text():
+                r.expand()  # 系統級別指令：展開它
+                time.sleep(0.5)
+                
+                # 展開後，掃描裡面的所有報表
+                for child in r.children():
+                    if "00981A" in child.text():
+                        child.select() # 系統級別指令：選取它
+                        time.sleep(0.2)
+                        child.click()  # 確保有被點擊
+                        target_found = True
+                        break
+                break
+                
+        if not target_found:
+            raise RuntimeError("在樹狀圖中讀不到「使用者」或「00981A操作日報」")
+            
+    except Exception as e:
+        raise RuntimeError(f"系統級樹狀圖解析失敗: {e}")
 
-        # 5. 按下確定
+    # 4. 按下確定
+    time.sleep(0.5)
+    try:
+        win32_dlg.child_window(title="確定(Y)", control_type="Button").click()
+    except Exception:
         try:
-            win32_dlg.child_window(title="確定(Y)", control_type="Button").click()
-        except Exception:
-            send_keys("%y")     # 備用快捷鍵 Alt+Y
+            win32_dlg.set_focus()
+            send_keys("%y")
             time.sleep(0.3)
             send_keys("{ENTER}")
-
-    except Exception as e:
-        raise RuntimeError(f"選取報表失敗: {e}")
+        except Exception:
+            pass
 
 
 def _read_sheet_data(ws) -> list:

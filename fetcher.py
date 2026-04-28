@@ -243,19 +243,17 @@ def _select_cmoney_template():
         pass
     time.sleep(0.5)
 
-  # 3. 終極殺招 V4：坐標強行奪取焦點 + 盲打 + 空白鍵選取 (專治視窗閃爍與焦點遺失)
+ # 3. 終極殺招 V5：奪取焦點 + 展開延遲 + 首字母跳躍法 (解決按鍵被吃掉)
     try:
         # 直接把焦點放在整個對話框上
         win32_dlg.set_focus()
         time.sleep(1) 
         
-        # 【關鍵修正 1：奪取樹狀圖焦點，解決視窗閃爍】
-        # 直接點擊對話框左側 (X=80, Y=150) 的位置，確保鍵盤游標真的落在白色的樹狀圖範圍裡！
-        # 即使剛好點到「使用者」或「系統的」，接下來的 HOME 鍵都會重置位置
+        # 奪取樹狀圖焦點
         win32_dlg.click_input(coords=(80, 150))
         time.sleep(0.5)
         
-        # 開始盲按 (這時候焦點已經在樹狀圖內，就不會再閃爍了)
+        # 開始盲按
         send_keys("{HOME}")     
         time.sleep(0.3)
         send_keys("{-}")        # 強制收合「系統的」
@@ -269,19 +267,23 @@ def _select_cmoney_template():
         send_keys("{DOWN}")     
         time.sleep(0.3)
         send_keys("{+}")        # 強制展開「使用者」
-        time.sleep(1)           # 展開通常需要載入，多等一下
         
-        send_keys("{DOWN}")     # 往下選取第一個報表 (00981A)
-        time.sleep(0.3)
+        # 【關鍵修正 1：拉長等待時間】
+        # VB6 展開節點時會短暫卡頓，必須給它足夠的時間把「00981A操作日報」畫出來
+        time.sleep(2)           
         
-        # 【關鍵修正 2：觸發實際選取】
-        # 補上空白鍵，強迫系統將該節點變成「藍色底反白」，藉此喚醒右下角的「確定(Y)」按鈕
+        # 【關鍵修正 2：首字母尋路法 (絕對防呆)】
+        # 放棄使用容易被吃掉的 {DOWN}
+        # 直接輸入字串 "0"，Windows 會自動精準跳到目前名單中第一個 0 開頭的節點 (即 00981A)
+        send_keys("0")
+        time.sleep(0.8)
+        
+        # 觸發實際選取，喚醒右下角的「確定(Y)」按鈕
         send_keys("{SPACE}")    
         time.sleep(0.5)
         
     except Exception as e:
         raise RuntimeError(f"VB6 盲打導航失敗: {e}")
-
     # 4. 按下確定
     time.sleep(0.5)
     try:

@@ -243,39 +243,21 @@ def _select_cmoney_template():
         pass
     time.sleep(0.5)
 
-    # 3. 終極殺招：強制收合防呆法 (破解資料夾展開造成的步數錯誤)
+   # 3. 升級版：直接使用 pywinauto 內建的樹狀圖路徑選擇
     try:
         tree = win32_dlg.child_window(class_name_re=".*SysTreeView32.*")
         tree.set_focus()
         time.sleep(0.5)
         
-        # 回到最頂層 (系統的)
-        send_keys("{HOME}")     
-        time.sleep(0.3)
-        # 關鍵防呆：按左鍵！如果它是展開的，就會被強制收合；如果是收合的則沒影響
-        send_keys("{LEFT}")     
-        time.sleep(0.3)
-        
-        # 往下走到第二個 (管理者)
-        send_keys("{DOWN}")     
-        time.sleep(0.3)
-        # 關鍵防呆：按左鍵強制收合
-        send_keys("{LEFT}")     
-        time.sleep(0.3)
-        
-        # 往下走到第三個 (使用者)
-        send_keys("{DOWN}")     
-        time.sleep(0.3)
-        # 展開「使用者」
-        send_keys("{RIGHT}")    
+        # 直接指定路徑，讓 pywinauto 自己去展開並點擊
+        # 注意：請確認介面上的實際文字，如果是「00981A 操作日報」就要打全名
+        target_item = tree.get_item(r"\使用者\00981A") 
+        target_item.select()
+        target_item.click_input()
         time.sleep(1)
         
-        # 往下選取第一個報表 (00981A)
-        send_keys("{DOWN}")     
-        time.sleep(0.5)
-        
     except Exception as e:
-        raise RuntimeError(f"系統級樹狀圖解析失敗: {e}")
+        raise RuntimeError(f"系統級樹狀圖解析失敗: {e}\n(可能路徑名稱不對，可用 print(tree.texts()) 檢查)")
 
     # 4. 按下確定
     time.sleep(0.5)

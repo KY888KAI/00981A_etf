@@ -223,28 +223,72 @@ def _handle_cmoney_dialog(on_progress=None):
 
 
 def _select_cmoney_template():
+    # 1. 耐心等待對話框出現
+    sub_hwnd = 0
+    for _ in range(15):
+        sub_hwnd = win32gui.FindWindow(None, "開啟自訂報表")
+        if sub_hwnd:
+            break
+        time.sleep(1)
 
-def _read_sheet_data(ws) -> list:
+    if not sub_hwnd:
+        raise RuntimeError("等了 15 秒，系統底層依然找不到「開啟自訂報表」對話框")
+
+    # 2. 連接視窗
+    app32 = Application(backend="win32").connect(handle=sub_hwnd)
+    win32_dlg = app32.window(handle=sub_hwnd)
     try:
-        used = ws.UsedRange
-        rows_out = []
-        for r in range(1, used.Rows.Count + 1):
-            row = []
-            for c in range(1, used.Columns.Count + 1):
-                val = ws.Cells(r, c).Value
-                if val is None:
-                    row.append("")
-                elif isinstance(val, float):
-                    row.append(str(int(val)) if val == int(val) else f"{val:.6g}")
-                else:
-                    row.append(str(val).strip())
-            line = " ".join(v for v in row if v)
-            if ETF in line:
-                rows_out.append(line)
-        return rows_out
+        win32_dlg.set_focus()
+    except Exception:
+        pass
+    time.sleep(0.5)
+
+    # 3. 終極殺招：強制收合防呆法 (破解資料夾展開造成的步數錯誤)
+    try:
+        tree = win32_dlg.child_window(class_name_re=".*SysTreeView32.*")
+        tree.set_focus()
+        time.sleep(0.5)
+        
+        # 回到最頂層 (系統的)
+        send_keys("{HOME}")     
+        time.sleep(0.3)
+        # 關鍵防呆：按左鍵！如果它是展開的，就會被強制收合；如果是收合的則沒影響
+        send_keys("{LEFT}")     
+        time.sleep(0.3)
+        
+        # 往下走到第二個 (管理者)
+        send_keys("{DOWN}")     
+        time.sleep(0.3)
+        # 關鍵防呆：按左鍵強制收合
+        send_keys("{LEFT}")     
+        time.sleep(0.3)
+        
+        # 往下走到第三個 (使用者)
+        send_keys("{DOWN}")     
+        time.sleep(0.3)
+        # 展開「使用者」
+        send_keys("{RIGHT}")    
+        time.sleep(1)
+        
+        # 往下選取第一個報表 (00981A)
+        send_keys("{DOWN}")     
+        time.sleep(0.5)
+        
     except Exception as e:
-        _p(f"讀取 Excel 儲存格失敗: {e}", "WARN")
-        return []
+        raise RuntimeError(f"系統級樹狀圖解析失敗: {e}")
+
+    # 4. 按下確定
+    time.sleep(0.5)
+    try:
+        win32_dlg.child_window(title="確定(Y)", control_type="Button").click()
+    except Exception:
+        try:
+            win32_dlg.set_focus()
+            send_keys("%y")
+            time.sleep(0.3)
+            send_keys("{ENTER}")
+        except Exception:
+            pass
 
 
 def _hwnd_by_class(cls: str):
